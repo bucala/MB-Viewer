@@ -1,2 +1,120 @@
-# MB-Viewer
-MB Viewer
+# MB Viewer
+
+A multiplatform CAD viewer — one React codebase targeting **Web**, **Windows desktop** (Tauri) and **Android** (Capacitor).
+
+Opens **STEP / IGES / BREP** (via OpenCASCADE compiled to WebAssembly), plus **STL / OBJ / GLB**, and provides an assembly tree, an interactive View Cube, material presets and measurement tools in a minimalist, model-first UI.
+
+![Layout: assembly tree · 3D viewport · toolbar](docs/screenshot.png)
+
+## Features
+
+- **Project tree (left panel)** — collapsible assembly hierarchy read from the CAD product structure, with per-node show/hide (hiding a group hides its subtree), search filtering and selection sync with the viewport.
+- **3D canvas + View Cube** — orbit/pan/zoom viewport with an interactive navigation cube in the top-right corner; clicking faces, edges or corners smoothly animates the camera to the matching orthographic/isometric view.
+- **Materials & appearance** — presets (*Original, Matte Plastic, Shiny Plastic, Metal, Glass*) and a color palette, applied to the whole model or to the selected part/sub-assembly (material inheritance follows the tree).
+- **Measurement tools** — point-to-point **distance**, three-point **angle**, and **diameter** via circle-fit through three picked points; picks snap to mesh vertices within a screen-space radius. Raycasting is BVH-accelerated (`three-mesh-bvh`) so picking stays interactive on multi-million-triangle tessellations.
+- Drag & drop or file-picker loading, adaptive ground grid, camera auto-fit with scale-aware clipping planes, built-in procedural sample assembly.
+
+## Tech stack
+
+| Layer | Choice |
+|---|---|
+| UI | React 19 + TypeScript + Vite + Tailwind CSS 4 |
+| 3D | three.js via `@react-three/fiber` + `@react-three/drei` |
+| CAD parsing | `occt-import-js` (OpenCASCADE → WASM) in a Web Worker |
+| Picking perf | `three-mesh-bvh` |
+| State | `zustand` |
+| Desktop | Tauri 2 (WebView2 on Windows — ~10 MB installer, no bundled Chromium) |
+| Mobile | Capacitor 8 (Android WebView) |
+
+## How heavy STEP/IGES files are handled (WASM strategy)
+
+STEP and IGES are **B-rep** formats — they describe exact analytic surfaces, not triangles. Turning them into something a GPU can draw requires a real CAD kernel. MB Viewer uses [OpenCASCADE](https://dev.opencascade.org/) compiled to WebAssembly (`occt-import-js`), which parses the file **and** tessellates it into triangle meshes, preserving the assembly hierarchy and colors.
+
+The pipeline is designed around three constraints — parse times of seconds-to-minutes, a 7.6 MB WASM binary, and identical behavior across web/desktop/mobile shells:
+
+1. **Everything runs in a Web Worker** (`public/occt-worker.js`). The UI thread never blocks: the file bytes are `postMessage`-**transferred** (zero-copy) into the worker, OpenCASCADE parses + tessellates there, and the resulting positions/normals/indices are repacked into typed arrays and **transferred** back. Even a minutes-long parse leaves orbiting, tree interaction and the progress overlay fully responsive.
+2. **The WASM runtime stays out of the bundler.** The worker is a *classic* worker that `importScripts()`s the Emscripten UMD build verbatim; `scripts/copy-occt.mjs` copies `occt-import-js.{js,wasm}` into `public/vendor/occt/` on `npm install`. Vite never sees the Emscripten bundle, so dev, production, Tauri and Capacitor builds all load it the same way — and the 7.6 MB WASM is fetched **lazily**, only when the user first opens a STEP/IGES/BREP file. App startup pays nothing.
+3. **Meshes arrive render-ready.** On the main thread the typed arrays are wrapped directly into `THREE.BufferGeometry` (no copying), a BVH is built once per geometry for fast raycasting, and the worker-reported node tree becomes the assembly tree. Mesh-native formats bypass the worker entirely: STL/OBJ/GLB go through the standard three.js loaders.
+
+STL/STEP/IGES geometry is treated as **Z-up** (CAD convention) and displayed under a rigid −90° X rotation to three.js Y-up — rigid, so world-space measurements (distances/angles/diameters, in mm) are unaffected.
+
+## Project structure
+
+```
+MB-Viewer/
+├─ index.html
+├─ package.json / vite.config.ts / tsconfig.json
+├─ capacitor.config.ts            # Android shell config
+├─ public/
+│  ├─ occt-worker.js              # classic worker: OpenCASCADE WASM host
+│  └─ vendor/occt/                # WASM runtime (copied on npm install, gitignored)
+├─ scripts/
+│  ├─ copy-occt.mjs               # node_modules → public/vendor/occt
+│  └─ gen-icons.mjs               # placeholder Tauri icons
+├─ src/
+│  ├─ main.tsx                    # entry: BVH install + React root
+│  ├─ app/App.tsx                 # shell: layout, drag&drop, overlays, hotkeys
+│  ├─ store/viewerStore.ts        # zustand: model, tree state, tools, materials
+│  ├─ core/                       # UI-independent domain logic
+│  │  ├─ types.ts                 # LoadedModel, ModelNode, Measurement, …
+│  │  ├─ scene.ts                 # tree traversal → render entries, world box
+│  │  ├─ bvh.ts                   # three-mesh-bvh raycast install
+│  │  ├─ sample.ts                # procedural demo assembly
+│  │  ├─ loaders/
+│  │  │  ├─ openModelFile.ts      # extension routing, file picker
+│  │  │  ├─ occtLoader.ts         # worker RPC + occt result → LoadedModel
+│  │  │  ├─ meshLoaders.ts        # STL / OBJ / GLB
+│  │  │  └─ finalizeModel.ts      # indexing, bounds, stats, BVH build
+│  │  ├─ materials/presets.ts     # presets + memoized material resolution
+│  │  └─ measure/geometry.ts      # distance/angle/circle-fit math
+│  └─ components/
+│     ├─ layout/                  # Toolbar, Sidebar (assembly tree), StatusBar
+│     ├─ viewport/                # Canvas, SceneModel, ViewCube, CameraRig,
+│     │                           # MeasureOverlay, StudioEnvironment, grid
+│     └─ ui/icons.tsx             # inline SVG icon set
+└─ src-tauri/                     # Windows/desktop shell (Tauri 2)
+   ├─ tauri.conf.json / Cargo.toml
+   └─ src/{main.rs, lib.rs}
+```
+
+## Getting started
+
+```bash
+npm install        # also copies the occt WASM runtime into public/
+npm run dev        # web app on http://localhost:5173
+npm run build      # typecheck + production bundle in dist/
+```
+
+No model at hand? Click **Sample** in the toolbar.
+
+### Windows desktop (Tauri)
+
+Requires [Rust](https://rustup.rs) and the [Tauri prerequisites](https://tauri.app/start/prerequisites/) (WebView2 is preinstalled on Windows 11).
+
+```bash
+npm run desktop:dev      # dev app with hot reload
+npm run desktop:build    # installer (NSIS/MSI) in src-tauri/target/release/bundle/
+```
+
+Placeholder icons are committed; replace them with real branding via `npx @tauri-apps/cli icon your-icon.png`.
+
+### Android (Capacitor)
+
+Requires Android Studio + SDK.
+
+```bash
+npx cap add android      # once — generates the android/ project (gitignored)
+npm run android:sync     # build web assets + sync into the native project
+npm run android:open     # open in Android Studio, run on device/emulator
+```
+
+## Notes & roadmap
+
+- Units are assumed **millimeters** (OpenCASCADE normalizes STEP/IGES lengths to mm on import).
+- Diameter measurement fits a circle through three picked points — pick them spread around the circular edge for best accuracy.
+- `.glb` should be self-contained and uncompressed (no Draco/KTX2 decoders wired up yet); multi-material meshes use their first material.
+- Ideas next: per-face colors from STEP (`brep_faces` is already delivered by the worker), section planes, exploded views, edge/silhouette rendering, orthographic projection toggle, native file associations in the Tauri shell.
+
+## License
+
+MIT — see [LICENSE](LICENSE).

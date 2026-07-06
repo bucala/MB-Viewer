@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-ssr/
+.vite/
+
+# occt-import-js WASM runtime (copied from node_modules on postinstall)
+public/vendor/
+
+# Tauri
+src-tauri/target/
+src-tauri/gen/
+
+# Capacitor native project (generate with `npx cap add android`)
+android/
+
+# Misc
+*.local
+.DS_Store
+npm-debug.log*
