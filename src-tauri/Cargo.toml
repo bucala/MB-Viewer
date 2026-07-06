@@ -1,0 +1,18 @@
+[package]
+name = "mb-viewer"
+version = "0.1.0"
+description = "MB Viewer — multiplatform CAD viewer"
+edition = "2021"
+
+# Keep the library name distinct from the binary (required for mobile targets).
+[lib]
+name = "mb_viewer_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
