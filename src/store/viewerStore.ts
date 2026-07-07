@@ -3,14 +3,21 @@ import type {
   LoadedModel, MaterialAssignment, Measurement, ToolId, Vec3,
 } from '@/core/types';
 import {
-  angleAtVertexDeg, circleFrom3Points, distanceBetween, formatMm,
+  angleAtVertexDeg, circleFrom3Points, distanceBetween, formatMm, planeToPlane,
 } from '@/core/measure/geometry';
+import type { SurfacePick } from '@/core/measure/surface';
 import { disposeModel } from '@/core/loaders/finalizeModel';
+import { tr, type TranslationKey } from '@/i18n';
 
 interface LoadState {
   state: 'idle' | 'loading' | 'error';
   fileName?: string;
   error?: string;
+}
+
+interface PendingPlane {
+  point: Vec3;
+  normal: Vec3;
 }
 
 interface ViewerState {
@@ -19,10 +26,14 @@ interface ViewerState {
 
   /** Node ids explicitly hidden by the user (hides the whole subtree). */
   hidden: Record<string, true>;
+  /** Node ids rendered translucent (applies to the whole subtree). */
+  translucent: Record<string, true>;
   selectedId: string | null;
 
   tool: ToolId;
   pendingPoints: Vec3[];
+  /** First face captured by the smart-measure tool. */
+  pendingPlane: PendingPlane | null;
   measurements: Measurement[];
 
   globalMaterial: MaterialAssignment;
@@ -41,11 +52,13 @@ interface ViewerState {
   setModel(model: LoadedModel): void;
 
   toggleHidden(id: string): void;
+  toggleTranslucent(id: string): void;
   showAll(): void;
   setSelected(id: string | null): void;
 
   setTool(tool: ToolId): void;
   addMeasurePoint(point: Vec3): void;
+  handleAutoSurface(pick: SurfacePick): void;
   cancelPending(): void;
   removeMeasurement(id: string): void;
   clearMeasurements(): void;
@@ -61,21 +74,11 @@ interface ViewerState {
 
 let measurementSeq = 0;
 
-const TOOL_HINTS: Record<Exclude<ToolId, 'select'>, string[]> = {
-  'measure-distance': [
-    'Distance — pick the first point (snaps to vertices)',
-    'Distance — pick the second point',
-  ],
-  'measure-angle': [
-    'Angle — pick a point on the first leg',
-    'Angle — pick the corner (vertex) point',
-    'Angle — pick a point on the second leg',
-  ],
-  'measure-radius': [
-    'Diameter — pick a first point on the circular edge or face',
-    'Diameter — pick a second point along the same circle',
-    'Diameter — pick a third point to fit the circle',
-  ],
+const TOOL_HINT_KEYS: Record<Exclude<ToolId, 'select'>, TranslationKey[]> = {
+  'measure-auto': ['hint.auto.start'],
+  'measure-distance': ['hint.distance.0', 'hint.distance.1'],
+  'measure-angle': ['hint.angle.0', 'hint.angle.1', 'hint.angle.2'],
+  'measure-radius': ['hint.radius.0', 'hint.radius.1', 'hint.radius.2'],
 };
 
 const pointsNeeded = (tool: ToolId): number => (tool === 'measure-distance' ? 2 : 3);
@@ -84,9 +87,11 @@ export const useViewer = create<ViewerState>()((set, get) => ({
   model: null,
   load: { state: 'idle' },
   hidden: {},
+  translucent: {},
   selectedId: null,
   tool: 'select',
   pendingPoints: [],
+  pendingPlane: null,
   measurements: [],
   globalMaterial: { preset: 'original' },
   overrides: {},
@@ -108,9 +113,11 @@ export const useViewer = create<ViewerState>()((set, get) => ({
       model,
       load: { state: 'idle' },
       hidden: {},
+      translucent: {},
       selectedId: null,
       tool: 'select',
       pendingPoints: [],
+      pendingPlane: null,
       measurements: [],
       globalMaterial: { preset: 'original' },
       overrides: {},
@@ -126,6 +133,13 @@ export const useViewer = create<ViewerState>()((set, get) => ({
     set({ hidden });
   },
 
+  toggleTranslucent: (id) => {
+    const translucent = { ...get().translucent };
+    if (translucent[id]) delete translucent[id];
+    else translucent[id] = true;
+    set({ translucent });
+  },
+
   showAll: () => set({ hidden: {} }),
 
   setSelected: (id) => set({ selectedId: id }),
@@ -134,17 +148,18 @@ export const useViewer = create<ViewerState>()((set, get) => ({
     set({
       tool,
       pendingPoints: [],
-      notice: tool === 'select' ? null : TOOL_HINTS[tool][0],
+      pendingPlane: null,
+      notice: tool === 'select' ? null : tr(TOOL_HINT_KEYS[tool][0]),
     }),
 
   addMeasurePoint: (point) => {
     const { tool, pendingPoints, measurements } = get();
-    if (tool === 'select') return;
+    if (tool === 'select' || tool === 'measure-auto') return;
     const points = [...pendingPoints, point];
     const needed = pointsNeeded(tool);
 
     if (points.length < needed) {
-      set({ pendingPoints: points, notice: TOOL_HINTS[tool][points.length] });
+      set({ pendingPoints: points, notice: tr(TOOL_HINT_KEYS[tool][points.length]) });
       return;
     }
 
@@ -164,10 +179,7 @@ export const useViewer = create<ViewerState>()((set, get) => ({
     } else {
       const circle = circleFrom3Points(points[0], points[1], points[2]);
       if (!circle) {
-        set({
-          pendingPoints: [],
-          notice: 'Those points are collinear — pick three points spread around the curve.',
-        });
+        set({ pendingPoints: [], notice: tr('hint.collinear') });
         return;
       }
       const value = circle.radius * 2;
@@ -180,16 +192,67 @@ export const useViewer = create<ViewerState>()((set, get) => ({
     set({
       pendingPoints: [],
       measurements: [...measurements, measurement],
-      notice: `${measurement.label} — ${TOOL_HINTS[tool][0]}`,
+      notice: `${measurement.label} — ${tr(TOOL_HINT_KEYS[tool][0])}`,
     });
   },
 
-  cancelPending: () => set({ pendingPoints: [], notice: null }),
+  handleAutoSurface: (pick) => {
+    const { pendingPlane, measurements } = get();
+
+    if (pick.kind === 'cylinder' && pick.center && pick.axis && pick.radius) {
+      const value = pick.radius * 2;
+      const measurement: Measurement = {
+        id: `m${++measurementSeq}`,
+        type: 'radius',
+        points: [pick.point],
+        value,
+        label: `Ø ${formatMm(value)} mm`,
+        circle: { center: pick.center, radius: pick.radius, normal: pick.axis },
+      };
+      set({
+        measurements: [...measurements, measurement],
+        pendingPlane: null,
+        pendingPoints: [],
+        notice: `${measurement.label} — ${tr('hint.auto.start')}`,
+      });
+      return;
+    }
+
+    if (pick.kind === 'plane' && pick.normal) {
+      if (!pendingPlane) {
+        set({
+          pendingPlane: { point: pick.point, normal: pick.normal },
+          pendingPoints: [pick.point],
+          notice: tr('hint.auto.plane'),
+        });
+        return;
+      }
+      const result = planeToPlane(pendingPlane.point, pendingPlane.normal, pick.point, pick.normal);
+      const measurement: Measurement = {
+        id: `m${++measurementSeq}`,
+        type: 'distance',
+        points: [pendingPlane.point, result.end],
+        value: result.value,
+        label: `${formatMm(result.value)} mm`,
+      };
+      set({
+        measurements: [...measurements, measurement],
+        pendingPlane: null,
+        pendingPoints: [],
+        notice: `${measurement.label} — ${tr(result.parallel ? 'hint.auto.start' : 'hint.auto.nonparallel')}`,
+      });
+      return;
+    }
+
+    set({ notice: tr('hint.auto.unknown') });
+  },
+
+  cancelPending: () => set({ pendingPoints: [], pendingPlane: null, notice: null }),
 
   removeMeasurement: (id) =>
     set({ measurements: get().measurements.filter((m) => m.id !== id) }),
 
-  clearMeasurements: () => set({ measurements: [], pendingPoints: [] }),
+  clearMeasurements: () => set({ measurements: [], pendingPoints: [], pendingPlane: null }),
 
   applyMaterial: (patch) => {
     const { selectedId, overrides, globalMaterial } = get();

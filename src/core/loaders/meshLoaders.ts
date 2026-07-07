@@ -4,6 +4,7 @@ import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import type { LoadedModel, ModelMesh, ModelNode } from '@/core/types';
 import { finalizeModel } from '@/core/loaders/finalizeModel';
+import { tr } from '@/i18n';
 
 function baseName(fileName: string): string {
   return fileName.replace(/\.[^.]+$/, '');
@@ -34,7 +35,7 @@ export function loadObjModel(text: string, fileName: string): LoadedModel {
     meshes.push({ id, name, geometry });
     children.push({ id: `n${id + 1}`, name, meshIds: [id], children: [] });
   });
-  if (meshes.length === 0) throw new Error('The OBJ file contains no geometry.');
+  if (meshes.length === 0) throw new Error(tr('err.objEmpty'));
 
   const root: ModelNode = { id: 'n0', name: baseName(fileName), meshIds: [], children };
   return finalizeModel(fileName, root, meshes, 'y');
@@ -81,7 +82,7 @@ export async function loadGlbModel(buffer: ArrayBuffer, fileName: string): Promi
   const rootChildren = scene.children
     .map(convert)
     .filter((node): node is ModelNode => node !== null);
-  if (meshes.length === 0) throw new Error('The GLB file contains no mesh geometry.');
+  if (meshes.length === 0) throw new Error(tr('err.glbEmpty'));
 
   const root: ModelNode = {
     id: `n${nodeSeq++}`,

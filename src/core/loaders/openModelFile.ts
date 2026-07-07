@@ -1,6 +1,7 @@
 import { useViewer } from '@/store/viewerStore';
 import { buildModelFromCad, parseCadInWorker, type CadFormat } from '@/core/loaders/occtLoader';
 import { loadGlbModel, loadObjModel, loadStlModel } from '@/core/loaders/meshLoaders';
+import { tr } from '@/i18n';
 import type { LoadedModel } from '@/core/types';
 
 export const ACCEPTED_EXTENSIONS = ['step', 'stp', 'iges', 'igs', 'brep', 'stl', 'obj', 'glb'];
@@ -31,14 +32,20 @@ export async function openModelFile(file: File): Promise<void> {
     } else if (extension === 'glb') {
       model = await loadGlbModel(await file.arrayBuffer(), file.name);
     } else {
-      throw new Error(
-        `Unsupported file type ".${extension}". Supported: ${ACCEPTED_EXTENSIONS.join(', ')}.`,
-      );
+      throw new Error(tr('err.unsupported', { ext: extension, list: ACCEPTED_EXTENSIONS.join(', ') }));
     }
     useViewer.getState().setModel(model);
   } catch (error) {
-    useViewer.getState().failLoad(error instanceof Error ? error.message : String(error));
+    useViewer.getState().failLoad(localizeError(error));
   }
+}
+
+/** Map known worker/engine messages to the active language. */
+function localizeError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.startsWith('OpenCASCADE could not parse')) return tr('err.occt');
+  if (message.includes('worker crashed')) return tr('err.worker');
+  return message;
 }
 
 /** Programmatic file picker, usable from any component without a hidden input. */

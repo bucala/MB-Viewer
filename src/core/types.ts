@@ -3,7 +3,12 @@ import type * as THREE from 'three';
 /** Plain-array point, safe to keep in the store. World coordinates, mm. */
 export type Vec3 = [number, number, number];
 
-export type ToolId = 'select' | 'measure-distance' | 'measure-angle' | 'measure-radius';
+export type ToolId =
+  | 'select'
+  | 'measure-auto'
+  | 'measure-distance'
+  | 'measure-angle'
+  | 'measure-radius';
 
 export type MaterialPresetId = 'original' | 'matte' | 'shiny' | 'metal' | 'glass';
 
@@ -73,4 +78,5 @@ export interface RenderEntry {
   nodeId: string;
   assignment: MaterialAssignment;
   selected: boolean;
+  translucent: boolean;
 }

@@ -32,6 +32,14 @@
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.ico"
+    ],
+    "fileAssociations": [
+      { "ext": ["step", "stp"], "name": "STEP model", "description": "STEP CAD model", "role": "Viewer" },
+      { "ext": ["iges", "igs"], "name": "IGES model", "description": "IGES CAD model", "role": "Viewer" },
+      { "ext": ["brep"], "name": "BREP model", "description": "OpenCASCADE B-rep model", "role": "Viewer" },
+      { "ext": ["stl"], "name": "STL mesh", "description": "Stereolithography mesh", "role": "Viewer" },
+      { "ext": ["obj"], "name": "OBJ mesh", "description": "Wavefront OBJ mesh", "role": "Viewer" },
+      { "ext": ["glb"], "name": "glTF binary", "description": "glTF binary scene", "role": "Viewer" }
     ]
   }
 }

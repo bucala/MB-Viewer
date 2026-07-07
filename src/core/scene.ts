@@ -10,25 +10,38 @@ import type { LoadedModel, MaterialAssignment, ModelNode, RenderEntry } from '@/
 export function collectRenderEntries(
   model: LoadedModel,
   hidden: Record<string, true>,
+  translucent: Record<string, true>,
   overrides: Record<string, MaterialAssignment>,
   globalMaterial: MaterialAssignment,
   selectedId: string | null,
 ): RenderEntry[] {
   const entries: RenderEntry[] = [];
 
-  const walk = (node: ModelNode, inherited: MaterialAssignment | null, selected: boolean) => {
+  const walk = (
+    node: ModelNode,
+    inherited: MaterialAssignment | null,
+    selected: boolean,
+    ghost: boolean,
+  ) => {
     if (hidden[node.id]) return;
     const assignment = overrides[node.id] ?? inherited;
     const isSelected = selected || node.id === selectedId;
+    const isGhost = ghost || Boolean(translucent[node.id]);
     for (const meshId of node.meshIds) {
       const mesh = model.meshes[meshId];
       if (!mesh) continue;
-      entries.push({ mesh, nodeId: node.id, assignment: assignment ?? globalMaterial, selected: isSelected });
+      entries.push({
+        mesh,
+        nodeId: node.id,
+        assignment: assignment ?? globalMaterial,
+        selected: isSelected,
+        translucent: isGhost,
+      });
     }
-    for (const child of node.children) walk(child, assignment, isSelected);
+    for (const child of node.children) walk(child, assignment, isSelected, isGhost);
   };
 
-  walk(model.root, null, false);
+  walk(model.root, null, false, false);
   return entries;
 }
 
