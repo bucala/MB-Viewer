@@ -1,14 +1,6 @@
 import * as THREE from 'three';
 import type { MaterialPresetId, RenderEntry } from '@/core/types';
 
-export const PRESET_LABELS: Record<MaterialPresetId, string> = {
-  original: 'Original',
-  matte: 'Matte Plastic',
-  shiny: 'Shiny Plastic',
-  metal: 'Metal',
-  glass: 'Glass',
-};
-
 export const PRESET_ORDER: MaterialPresetId[] = ['original', 'matte', 'shiny', 'metal', 'glass'];
 
 export const SWATCH_COLORS = [
@@ -51,32 +43,42 @@ function applySelectionTint(material: THREE.Material): void {
   }
 }
 
+/** Ghost mode for parts toggled translucent in the tree. */
+function applyTranslucency(material: THREE.Material, opacity: number): void {
+  material.transparent = true;
+  material.opacity = opacity;
+  material.depthWrite = false;
+}
+
 // Materials are shared across meshes and memoized by appearance key — a
 // 5,000-part assembly with one global preset uses a handful of materials.
 const cache = new Map<string, THREE.Material>();
 
-export function resolveMaterial(entry: RenderEntry): THREE.Material {
-  const { assignment, mesh, selected } = entry;
+export function resolveMaterial(entry: RenderEntry, translucentOpacity = 0.35): THREE.Material {
+  const { assignment, mesh, selected, translucent } = entry;
+  const ghostKey = translucent ? `:g${translucentOpacity.toFixed(2)}` : '';
 
   // 'original' on a glTF model keeps the material shipped in the file.
   if (assignment.preset === 'original' && !assignment.color && mesh.originalMaterial) {
-    if (!selected) return mesh.originalMaterial;
-    const key = `orig:${mesh.originalMaterial.uuid}`;
+    if (!selected && !translucent) return mesh.originalMaterial;
+    const key = `orig:${mesh.originalMaterial.uuid}:${selected ? 1 : 0}${ghostKey}`;
     let material = cache.get(key);
     if (!material) {
       material = mesh.originalMaterial.clone();
-      applySelectionTint(material);
+      if (selected) applySelectionTint(material);
+      if (translucent) applyTranslucency(material, translucentOpacity);
       cache.set(key, material);
     }
     return material;
   }
 
   const color = assignment.color ?? mesh.color ?? DEFAULT_CAD_COLOR;
-  const key = `${assignment.preset}:${color}:${selected ? 1 : 0}`;
+  const key = `${assignment.preset}:${color}:${selected ? 1 : 0}${ghostKey}`;
   let material = cache.get(key);
   if (!material) {
     material = createPresetMaterial(assignment.preset, color);
     if (selected) applySelectionTint(material);
+    if (translucent) applyTranslucency(material, translucentOpacity);
     cache.set(key, material);
   }
   return material;

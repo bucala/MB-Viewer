@@ -123,6 +123,28 @@ export const XIcon = (p: IconProps) => (
   </Svg>
 );
 
+export const MenuIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M4 7h16M4 12h16M4 17h16" />
+  </Svg>
+);
+
+export const TransparencyIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="8" />
+    <path d="M12 4a8 8 0 0 1 0 16Z" fill="currentColor" stroke="none" opacity=".4" />
+  </Svg>
+);
+
+export const WandIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M4 20 14.5 9.5" />
+    <path d="M17.5 3.5l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8Z" />
+    <path d="M19.8 11.3l.5 1.3 1.3.5-1.3.5-.5 1.3-.5-1.3-1.3-.5 1.3-.5Z" />
+    <path d="M9.5 4.8l.5 1.2 1.2.5-1.2.5-.5 1.2-.5-1.2-1.2-.5 1.2-.5Z" />
+  </Svg>
+);
+
 export const TrashIcon = (p: IconProps) => (
   <Svg {...p}>
     <path d="M4 7h16M9.5 7V5.5A1.5 1.5 0 0 1 11 4h2a1.5 1.5 0 0 1 1.5 1.5V7M6.5 7l.9 12a2 2 0 0 0 2 1.9h5.2a2 2 0 0 0 2-1.9l.9-12" />

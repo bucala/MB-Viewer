@@ -2,8 +2,10 @@ import { useMemo } from 'react';
 import * as THREE from 'three';
 import { useThree, type ThreeEvent } from '@react-three/fiber';
 import { useViewer } from '@/store/viewerStore';
+import { useSettings } from '@/store/settingsStore';
 import { collectRenderEntries } from '@/core/scene';
 import { resolveMaterial } from '@/core/materials/presets';
+import { classifySurfaceAt } from '@/core/measure/surface';
 import type { RenderEntry, Vec3 } from '@/core/types';
 
 /** Screen-space radius within which a click snaps to the nearest vertex. */
@@ -48,15 +50,25 @@ function resolveSnappedPoint(
 export function SceneModel() {
   const model = useViewer((s) => s.model);
   const hidden = useViewer((s) => s.hidden);
+  const translucent = useViewer((s) => s.translucent);
   const overrides = useViewer((s) => s.overrides);
   const globalMaterial = useViewer((s) => s.globalMaterial);
   const selectedId = useViewer((s) => s.selectedId);
+  const transparency = useSettings((s) => s.transparency);
   const camera = useThree((s) => s.camera);
   const size = useThree((s) => s.size);
 
   const entries = useMemo(
-    () => (model ? collectRenderEntries(model, hidden, overrides, globalMaterial, selectedId) : []),
-    [model, hidden, overrides, globalMaterial, selectedId],
+    () =>
+      model
+        ? collectRenderEntries(model, hidden, translucent, overrides, globalMaterial, selectedId)
+        : [],
+    [model, hidden, translucent, overrides, globalMaterial, selectedId],
+  );
+
+  const modelDiagonal = useMemo(
+    () => (model ? model.boundingBox.getSize(new THREE.Vector3()).length() : 1),
+    [model],
   );
 
   if (!model) return null;
@@ -68,6 +80,14 @@ export function SceneModel() {
     const store = useViewer.getState();
     if (store.tool === 'select') {
       store.setSelected(store.selectedId === entry.nodeId ? null : entry.nodeId);
+    } else if (store.tool === 'measure-auto') {
+      const pick = classifySurfaceAt(
+        event.object as THREE.Mesh,
+        event.faceIndex ?? null,
+        event.point.clone(),
+        modelDiagonal,
+      );
+      store.handleAutoSurface(pick);
     } else {
       store.addMeasurePoint(resolveSnappedPoint(event, camera, size));
     }
@@ -81,7 +101,7 @@ export function SceneModel() {
         <mesh
           key={`${entry.mesh.id}`}
           geometry={entry.mesh.geometry}
-          material={resolveMaterial(entry)}
+          material={resolveMaterial(entry, transparency)}
           onClick={handleClick(entry)}
         />
       ))}

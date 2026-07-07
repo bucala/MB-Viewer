@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import * as THREE from 'three';
 import { Html, Line } from '@react-three/drei';
 import { useViewer } from '@/store/viewerStore';
+import { useT } from '@/i18n';
 import type { Measurement, Vec3 } from '@/core/types';
 
 const ACCENT = '#2563eb';
@@ -55,11 +56,12 @@ function Marker({ position, radius, pending = false }: { position: Vec3; radius:
 }
 
 function Label({ position, text, onClick }: { position: Vec3; text: string; onClick?: () => void }) {
+  const t = useT();
   return (
     <Html position={position} center zIndexRange={[30, 0]}>
       <button
         type="button"
-        title="Click to remove this measurement"
+        title={t('measure.remove')}
         onClick={onClick}
         className="cursor-pointer whitespace-nowrap rounded-full bg-neutral-900/85 px-2 py-0.5 text-[11px] font-medium text-white shadow-md backdrop-blur transition-colors hover:bg-red-600/90"
       >

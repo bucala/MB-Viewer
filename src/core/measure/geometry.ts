@@ -43,6 +43,28 @@ export function circleFrom3Points(pa: Vec3, pb: Vec3, pc: Vec3): Circle3 | null 
   };
 }
 
+/**
+ * Distance between two picked faces (smart measure). Near-parallel faces
+ * (within 10°) measure along the first face's normal; otherwise fall back to
+ * the distance between the picked points.
+ */
+export function planeToPlane(
+  p1: Vec3,
+  n1: Vec3,
+  p2: Vec3,
+  n2: Vec3,
+): { parallel: boolean; value: number; end: Vec3 } {
+  const normal = v(n1).normalize();
+  const parallel =
+    Math.abs(normal.dot(v(n2).normalize())) > Math.cos(THREE.MathUtils.degToRad(10));
+  if (parallel) {
+    const t = v(p2).sub(v(p1)).dot(normal);
+    const end = v(p1).addScaledVector(normal, t);
+    return { parallel: true, value: Math.abs(t), end: end.toArray() as Vec3 };
+  }
+  return { parallel: false, value: distanceBetween(p1, p2), end: p2 };
+}
+
 /** Format a millimeter value with sensible precision. */
 export function formatMm(value: number): string {
   if (value >= 1000) return value.toFixed(0);

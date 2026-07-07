@@ -1,19 +1,22 @@
 import { useMemo } from 'react';
 import * as THREE from 'three';
 import { Canvas } from '@react-three/fiber';
-import { Grid, OrbitControls } from '@react-three/drei';
+import { Grid, OrbitControls, OrthographicCamera, PerspectiveCamera } from '@react-three/drei';
 import { useViewer } from '@/store/viewerStore';
+import { THEME_3D, useSettings } from '@/store/settingsStore';
 import { getWorldBox, niceStep } from '@/core/scene';
 import { SceneModel } from '@/components/viewport/SceneModel';
 import { MeasureOverlay } from '@/components/viewport/MeasureOverlay';
 import { CameraRig } from '@/components/viewport/CameraRig';
 import { ViewCube } from '@/components/viewport/ViewCube';
+import { AxesGizmo } from '@/components/viewport/AxesGizmo';
 import { StudioEnvironment } from '@/components/viewport/StudioEnvironment';
 
 /** Ground grid sized to the model (nice 1/2/5 steps, placed under it). */
 function AdaptiveGrid() {
   const model = useViewer((s) => s.model);
   const gridVisible = useViewer((s) => s.gridVisible);
+  const theme = useSettings((s) => s.theme);
 
   const config = useMemo(() => {
     if (!model) return null;
@@ -37,8 +40,8 @@ function AdaptiveGrid() {
       sectionSize={config.sectionSize}
       cellThickness={0.6}
       sectionThickness={1}
-      cellColor="#d3d7dc"
-      sectionColor="#b4bac2"
+      cellColor={THEME_3D[theme].gridCell}
+      sectionColor={THEME_3D[theme].gridSection}
       fadeDistance={config.fadeDistance}
       fadeStrength={1.5}
       infiniteGrid
@@ -48,10 +51,12 @@ function AdaptiveGrid() {
 }
 
 export function Viewport() {
+  const theme = useSettings((s) => s.theme);
+  const projection = useSettings((s) => s.projection);
+
   return (
     <Canvas
       dpr={[1, 2]}
-      camera={{ position: [180, 130, 180], fov: 45, near: 0.1, far: 20000 }}
       gl={{ antialias: true }}
       className="touch-none"
       onPointerMissed={() => {
@@ -59,7 +64,12 @@ export function Viewport() {
         if (store.tool === 'select') store.setSelected(null);
       }}
     >
-      <color attach="background" args={['#eef0f3']} />
+      <color attach="background" args={[THEME_3D[theme].canvas]} />
+      {projection === 'perspective' ? (
+        <PerspectiveCamera makeDefault position={[180, 130, 180]} fov={45} near={0.1} far={20000} />
+      ) : (
+        <OrthographicCamera makeDefault position={[180, 130, 180]} zoom={2} near={0.01} far={200000} />
+      )}
       <StudioEnvironment />
       <directionalLight position={[300, 500, 200]} intensity={1.2} />
 
@@ -70,6 +80,7 @@ export function Viewport() {
       <CameraRig />
       <OrbitControls makeDefault enableDamping dampingFactor={0.12} />
       <ViewCube />
+      <AxesGizmo />
     </Canvas>
   );
 }

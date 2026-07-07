@@ -1,7 +1,10 @@
 import { useMemo, useState } from 'react';
 import { useViewer } from '@/store/viewerStore';
 import type { LoadedModel, ModelNode } from '@/core/types';
-import { ChevronRightIcon, EyeIcon, EyeOffIcon, SearchIcon } from '@/components/ui/icons';
+import { useNumberFormat, useT } from '@/i18n';
+import {
+  ChevronRightIcon, EyeIcon, EyeOffIcon, SearchIcon, TransparencyIcon,
+} from '@/components/ui/icons';
 
 /** Nodes that match the query, or contain a match — shown while searching. */
 function collectMatches(node: ModelNode, query: string, out: Set<string>): boolean {
@@ -36,14 +39,18 @@ function TreeNodeRow({
   onToggleExpand: (id: string) => void;
   matches: Set<string> | null;
 }) {
+  const t = useT();
   const hidden = useViewer((s) => s.hidden);
+  const translucent = useViewer((s) => s.translucent);
   const selectedId = useViewer((s) => s.selectedId);
   const setSelected = useViewer((s) => s.setSelected);
   const toggleHidden = useViewer((s) => s.toggleHidden);
+  const toggleTranslucent = useViewer((s) => s.toggleTranslucent);
 
   if (matches && !matches.has(node.id)) return null;
 
   const selfHidden = Boolean(hidden[node.id]);
+  const selfTranslucent = Boolean(translucent[node.id]);
   const effectiveHidden = parentHidden || selfHidden;
   const hasChildren = node.children.length > 0;
   const isExpanded = matches ? true : expanded.has(node.id);
@@ -58,14 +65,14 @@ function TreeNodeRow({
         onClick={() => setSelected(isSelected ? null : node.id)}
         style={{ paddingLeft: depth * 14 + 4 }}
         className={`group flex cursor-default select-none items-center gap-1 rounded-md py-[3px] pr-1 text-[13px] transition-colors
-          ${isSelected ? 'bg-blue-50 text-blue-700' : 'text-neutral-700 hover:bg-neutral-100'}`}
+          ${isSelected ? 'bg-accent-soft text-accent' : 'text-ink-soft hover:bg-hover'}`}
       >
         {hasChildren ? (
           <button
             type="button"
-            aria-label={isExpanded ? 'Collapse' : 'Expand'}
+            aria-label={isExpanded ? t('tree.collapse') : t('tree.expand')}
             onClick={(event) => { event.stopPropagation(); onToggleExpand(node.id); }}
-            className="grid size-4 shrink-0 place-items-center rounded text-neutral-400 hover:text-neutral-700"
+            className="grid size-4 shrink-0 place-items-center rounded text-ink-faint hover:text-ink"
           >
             <ChevronRightIcon className={`text-[12px] transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
           </button>
@@ -77,16 +84,28 @@ function TreeNodeRow({
 
         <span
           title={node.name}
-          className={`flex-1 truncate ${effectiveHidden ? 'text-neutral-400 line-through decoration-neutral-300' : ''}`}
+          className={`flex-1 truncate ${effectiveHidden ? 'text-ink-faint line-through decoration-ink-faint/50' : ''}`}
         >
           {node.name}
         </span>
 
         <button
           type="button"
-          title={selfHidden ? 'Show' : 'Hide'}
+          title={t('tree.transparent')}
+          onClick={(event) => { event.stopPropagation(); toggleTranslucent(node.id); }}
+          className={`grid size-5 shrink-0 place-items-center rounded transition-opacity
+            ${selfTranslucent
+              ? 'text-accent opacity-100'
+              : 'text-ink-faint opacity-0 hover:text-ink group-hover:opacity-100'}`}
+        >
+          <TransparencyIcon className="text-[13px]" />
+        </button>
+
+        <button
+          type="button"
+          title={selfHidden ? t('tree.show') : t('tree.hide')}
           onClick={(event) => { event.stopPropagation(); toggleHidden(node.id); }}
-          className={`grid size-5 shrink-0 place-items-center rounded text-neutral-400 transition-opacity hover:text-neutral-700
+          className={`grid size-5 shrink-0 place-items-center rounded text-ink-faint transition-opacity hover:text-ink
             ${selfHidden ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
         >
           {selfHidden ? <EyeOffIcon className="text-[13px]" /> : <EyeIcon className="text-[13px]" />}
@@ -110,6 +129,7 @@ function TreeNodeRow({
 }
 
 function ModelTree({ model, query }: { model: LoadedModel; query: string }) {
+  const t = useT();
   const [expanded, setExpanded] = useState<Set<string>>(() => defaultExpanded(model));
 
   const matches = useMemo(() => {
@@ -129,7 +149,11 @@ function ModelTree({ model, query }: { model: LoadedModel; query: string }) {
     });
 
   if (matches && matches.size === 0) {
-    return <p className="px-2 py-4 text-center text-[12px] text-neutral-400">No parts match “{query.trim()}”</p>;
+    return (
+      <p className="px-2 py-4 text-center text-[12px] text-ink-faint">
+        {t('tree.noMatch', { q: query.trim() })}
+      </p>
+    );
   }
 
   return (
@@ -147,19 +171,21 @@ function ModelTree({ model, query }: { model: LoadedModel; query: string }) {
 }
 
 export function Sidebar() {
+  const t = useT();
+  const nf = useNumberFormat();
   const model = useViewer((s) => s.model);
   const [query, setQuery] = useState('');
 
   return (
-    <aside className="z-10 flex w-72 shrink-0 flex-col border-r border-neutral-200 bg-white max-md:absolute max-md:inset-y-0 max-md:left-0 max-md:shadow-xl">
+    <aside className="z-10 flex w-72 shrink-0 flex-col border-r border-line bg-panel max-md:absolute max-md:inset-y-0 max-md:left-0 max-md:shadow-xl">
       <div className="p-3 pb-2">
         <div className="relative">
-          <SearchIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[15px] text-neutral-400" />
+          <SearchIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[15px] text-ink-faint" />
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search parts…"
-            className="w-full rounded-lg border border-neutral-200 bg-neutral-50 py-1.5 pl-8 pr-3 text-[13px] text-neutral-800 outline-none transition-colors placeholder:text-neutral-400 focus:border-blue-400 focus:bg-white"
+            placeholder={t('tree.search')}
+            className="w-full rounded-lg border border-line bg-panel-2 py-1.5 pl-8 pr-3 text-[13px] text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent focus:bg-panel"
           />
         </div>
       </div>
@@ -168,16 +194,14 @@ export function Sidebar() {
         {model ? (
           <ModelTree key={model.name} model={model} query={query} />
         ) : (
-          <p className="px-2 py-6 text-center text-[12px] leading-relaxed text-neutral-400">
-            The assembly tree appears here
-            <br />
-            once a model is loaded.
+          <p className="px-2 py-6 text-center text-[12px] leading-relaxed text-ink-faint">
+            {t('tree.empty')}
           </p>
         )}
       </div>
 
-      <footer className="border-t border-neutral-100 px-3 py-2 text-[11px] text-neutral-400">
-        {model ? `${model.partCount.toLocaleString()} parts` : 'No model loaded'}
+      <footer className="border-t border-line-soft px-3 py-2 text-[11px] text-ink-faint">
+        {model ? t('tree.parts', { n: nf.format(model.partCount) }) : t('tree.noModel')}
       </footer>
     </aside>
   );

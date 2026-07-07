@@ -8,10 +8,11 @@ Opens **STEP / IGES / BREP** (via OpenCASCADE compiled to WebAssembly), plus **S
 
 ## Features
 
-- **Project tree (left panel)** — collapsible assembly hierarchy read from the CAD product structure, with per-node show/hide (hiding a group hides its subtree), search filtering and selection sync with the viewport.
-- **3D canvas + View Cube** — orbit/pan/zoom viewport with an interactive navigation cube in the top-right corner; clicking faces, edges or corners smoothly animates the camera to the matching orthographic/isometric view.
+- **Project tree (left panel)** — collapsible assembly hierarchy read from the CAD product structure, with per-node show/hide and per-node **transparency** (ghost mode, strength configurable in Settings; both apply to the whole subtree), search filtering and selection sync with the viewport.
+- **3D canvas + View Cube + axes** — orbit/pan/zoom viewport with an interactive navigation cube (top-right, localized bold labels; clicking faces/edges/corners smoothly animates the camera) and an **XYZ orientation triad** (bottom-right). **Perspective or parallel** (orthographic) projection, switchable in Settings.
 - **Materials & appearance** — presets (*Original, Matte Plastic, Shiny Plastic, Metal, Glass*) and a color palette, applied to the whole model or to the selected part/sub-assembly (material inheritance follows the tree).
-- **Measurement tools** — point-to-point **distance**, three-point **angle**, and **diameter** via circle-fit through three picked points; picks snap to mesh vertices within a screen-space radius. Raycasting is BVH-accelerated (`three-mesh-bvh`) so picking stays interactive on multi-million-triangle tessellations.
+- **Measurement tools** — **smart measure** (click a cylinder or a circular rim → diameter; click two flat faces → distance, measured along the normal for parallel faces) plus dedicated point-to-point **distance**, three-point **angle**, and three-point **diameter** tools with screen-space vertex snapping. Surface types are recovered from the tessellation (facet-normal clustering + least-squares circle fit); raycasting is BVH-accelerated (`three-mesh-bvh`).
+- **Settings menu** — language (**Slovak** default / English), skin (**white / gray / black**), projection mode, transparency strength, OS **file-association** opt-ins (applied by the Tauri installer via `bundle.fileAssociations`), quick actions (sample assembly, grid), with Apply/Reset.
 - Drag & drop or file-picker loading, adaptive ground grid, camera auto-fit with scale-aware clipping planes, built-in procedural sample assembly.
 
 ## Tech stack
