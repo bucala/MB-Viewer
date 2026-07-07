@@ -1,12 +1,9 @@
 name: Android CI
 
-# Kedy sa má workflow spustiť
 on:
   push:
-    branches: [ "main" ] # Zmeň na 'master' ak používaš staršie pomenovanie
-  pull_request:
     branches: [ "main" ]
-  workflow_dispatch: # Umožní ti spustiť workflow kedykoľvek manuálne z GitHub UI
+  workflow_dispatch:
 
 jobs:
   build:
@@ -19,19 +16,22 @@ jobs:
     - name: Nastavenie Java JDK
       uses: actions/setup-java@v4
       with:
-        java-version: '17' # Ak používaš starší projekt, zmeň na '11'
+        java-version: '17'
         distribution: 'temurin'
-        cache: gradle # Výrazne zrýchli ďalšie buildy
+        # Dočasne sme vypli 'cache: gradle', pretože pri vnorenej štruktúre 
+        # priečinkov to robí presne tú chybu, ktorú vidíš na screenshote.
 
     - name: Udelenie práv na spustenie pre Gradle Wrapper
       run: chmod +x ./gradlew
+      working-directory: ./android # <--- Hľadáme v podpriečinku android
 
     - name: Vygenerovanie Debug APK
       run: ./gradlew assembleDebug
+      working-directory: ./android # <--- Spúšťame v podpriečinku android
 
     - name: Uloženie APK do artefaktov
       uses: actions/upload-artifact@v4
       with:
         name: app-debug-apk
-        # Cesta k vygenerovanému APK (štandardná pre Android Studio)
-        path: app/build/outputs/apk/debug/app-debug.apk
+        # Musíme upraviť aj cestu, odkiaľ sa má APK na konci stiahnuť
+        path: android/app/build/outputs/apk/debug/app-debug.apk
