@@ -4,7 +4,8 @@ import {
   DEFAULT_SETTINGS, useSettings,
   type Lang, type ProjectionMode, type SettingsValues, type ThemeId,
 } from '@/store/settingsStore';
-import { useT } from '@/i18n';
+import { tr, useT } from '@/i18n';
+import { applyFileAssociations } from '@/core/desktop';
 import { createSampleModel } from '@/core/sample';
 import { ACCEPTED_EXTENSIONS } from '@/core/loaders/openModelFile';
 import { ToolButton } from '@/components/ui/ToolButton';
@@ -80,6 +81,15 @@ export function SettingsMenu() {
     const previousProjection = useSettings.getState().projection;
     useSettings.getState().apply(draft);
     if (draft.projection !== previousProjection) useViewer.getState().requestFit();
+    // On the desktop shell the file associations register right away —
+    // no reinstall needed.
+    void applyFileAssociations(draft.fileAssociations)
+      .then((applied) => {
+        if (applied) useViewer.getState().setNotice(tr('set.assocApplied'));
+      })
+      .catch((error) => {
+        useViewer.getState().setNotice(tr('set.assocFailed', { error: String(error) }));
+      });
     setOpen(false);
   };
 

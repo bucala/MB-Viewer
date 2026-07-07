@@ -104,7 +104,7 @@ export default function App() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
       const store = useViewer.getState();
-      if (store.pendingPoints.length > 0 || store.pendingPlane) store.cancelPending();
+      if (store.pendingPoints.length > 0 || store.pendingEntity) store.cancelPending();
       else if (store.tool !== 'select') store.setTool('select');
       else store.setSelected(null);
     };
@@ -146,7 +146,7 @@ export default function App() {
           className="relative min-w-0 flex-1"
           onContextMenu={(event) => {
             const store = useViewer.getState();
-            if (store.pendingPoints.length > 0 || store.pendingPlane) {
+            if (store.pendingPoints.length > 0 || store.pendingEntity) {
               event.preventDefault();
               store.cancelPending();
             }

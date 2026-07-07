@@ -7,8 +7,8 @@ import { useT, type TranslationKey } from '@/i18n';
 import { ToolButton, ToolbarDivider, type IconType } from '@/components/ui/ToolButton';
 import { SettingsMenu } from '@/components/layout/SettingsMenu';
 import {
-  AngleIcon, CursorIcon, DiameterIcon, FitIcon, FolderOpenIcon,
-  PaletteIcon, PanelLeftIcon, RulerIcon, TrashIcon, WandIcon,
+  AngleIcon, CursorIcon, DiameterIcon, FitIcon, FolderOpenIcon, PaletteIcon,
+  PanelLeftIcon, PointToPointIcon, RulerIcon, TrashIcon, WandIcon,
 } from '@/components/ui/icons';
 
 const MEASURE_TOOLS: { id: ToolId; labelKey: TranslationKey; tipKey: TranslationKey; icon: IconType }[] = [
@@ -17,6 +17,7 @@ const MEASURE_TOOLS: { id: ToolId; labelKey: TranslationKey; tipKey: Translation
   { id: 'measure-distance', labelKey: 'toolbar.distance', tipKey: 'tip.distance', icon: RulerIcon },
   { id: 'measure-angle', labelKey: 'toolbar.angle', tipKey: 'tip.angle', icon: AngleIcon },
   { id: 'measure-radius', labelKey: 'toolbar.diameter', tipKey: 'tip.diameter', icon: DiameterIcon },
+  { id: 'measure-point', labelKey: 'toolbar.p2p', tipKey: 'tip.p2p', icon: PointToPointIcon },
 ];
 
 function PresetPreview({ preset }: { preset: MaterialPresetId }) {
