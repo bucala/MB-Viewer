@@ -1,0 +1,126 @@
+# ---------------------------------------------------------------------------
+# MB Viewer — manual installer builds
+#
+# Triggered manually from the Actions tab ("Build installers" → Run workflow).
+# The "platform" input selects what to build:
+#   all     -> both jobs run (default)
+#   android -> only the Android job (Capacitor → .apk)
+#   windows -> only the Windows job (Tauri → .msi)
+#
+# Each job uploads its installer with actions/upload-artifact, so the files
+# can be downloaded from the workflow run's Summary page.
+# ---------------------------------------------------------------------------
+name: Build installers
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Which installer(s) to build
+        type: choice
+        default: all
+        options:
+          - all
+          - android
+          - windows
+
+run-name: Build installers (${{ inputs.platform }})
+
+jobs:
+  android:
+    name: Android
+    # Runs for "all" or "android".
+    if: ${{ inputs.platform == 'all' || inputs.platform == 'android' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # Capacitor's generated Android project uses the Android Gradle Plugin,
+      # which requires Java 21. The Android SDK itself is preinstalled on
+      # ubuntu-latest runners.
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      # postinstall also copies the occt-import-js WASM runtime into public/.
+      - name: Install npm dependencies
+        run: npm ci
+
+      # Capacitor requires the web assets (dist/) to exist before `cap add`.
+      - name: Build web assets
+        run: npm run build
+
+      # android/ is gitignored — generate the native project fresh, then sync
+      # the built web assets and plugin config into it.
+      - name: Generate the Android project
+        run: npx cap add android
+
+      - name: Sync web assets into the Android project
+        run: npx cap sync android
+
+      # Debug APK: directly installable on a device, no signing keys needed.
+      # For a Play-Store-ready build, add a keystore as a repository secret
+      # and switch to `assembleRelease` with signingConfig.
+      - name: Build the APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Upload the APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MB-Viewer-android-apk
+          path: android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+  windows:
+    name: Windows
+    # Runs for "all" or "windows".
+    if: ${{ inputs.platform == 'all' || inputs.platform == 'windows' }}
+    runs-on: windows-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Rust (stable, MSVC)
+        uses: dtolnay/rust-toolchain@stable
+
+      # Caches the Cargo registry and build output between runs — the first
+      # Tauri build compiles hundreds of crates, cached runs take a fraction.
+      - name: Cache the Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      # `tauri build` runs beforeBuildCommand first (npm run build =
+      # typecheck + vite build), compiles the Rust shell, then bundles the
+      # MSI with WiX (downloaded automatically on first use). This also
+      # registers the file associations declared in tauri.conf.json.
+      - name: Build the MSI
+        run: npx tauri build --bundles msi
+
+      - name: Upload the MSI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MB-Viewer-windows-msi
+          path: src-tauri/target/release/bundle/msi/*.msi
+          if-no-files-found: error

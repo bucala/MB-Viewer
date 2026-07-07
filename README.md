@@ -109,6 +109,10 @@ npm run android:sync     # build web assets + sync into the native project
 npm run android:open     # open in Android Studio, run on device/emulator
 ```
 
+## CI installer builds
+
+`.github/workflows/build.yml` is a manually triggered workflow (**Actions → Build installers → Run workflow**) with a platform picker (`all` / `android` / `windows`). The **Android** job generates the Capacitor project and produces a debug **`.apk`**; the **Windows** job compiles the Tauri shell and produces an **`.msi`**. Both are uploaded as downloadable artifacts on the run's Summary page.
+
 ## Notes & roadmap
 
 - Units are assumed **millimeters** (OpenCASCADE normalizes STEP/IGES lengths to mm on import).
