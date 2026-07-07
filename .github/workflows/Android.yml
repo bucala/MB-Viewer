@@ -1,0 +1,37 @@
+name: Android CI
+
+# Kedy sa má workflow spustiť
+on:
+  push:
+    branches: [ "main" ] # Zmeň na 'master' ak používaš staršie pomenovanie
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch: # Umožní ti spustiť workflow kedykoľvek manuálne z GitHub UI
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Stiahnutie kódu
+      uses: actions/checkout@v4
+
+    - name: Nastavenie Java JDK
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17' # Ak používaš starší projekt, zmeň na '11'
+        distribution: 'temurin'
+        cache: gradle # Výrazne zrýchli ďalšie buildy
+
+    - name: Udelenie práv na spustenie pre Gradle Wrapper
+      run: chmod +x ./gradlew
+
+    - name: Vygenerovanie Debug APK
+      run: ./gradlew assembleDebug
+
+    - name: Uloženie APK do artefaktov
+      uses: actions/upload-artifact@v4
+      with:
+        name: app-debug-apk
+        # Cesta k vygenerovanému APK (štandardná pre Android Studio)
+        path: app/build/outputs/apk/debug/app-debug.apk
