@@ -5,6 +5,11 @@ on:
     branches: [ "main" ]
   workflow_dispatch:
 
+# Pri rýchlych po sebe idúcich push-och nechaj bežať len najnovší build.
+concurrency:
+  group: android-ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -13,25 +18,48 @@ jobs:
     - name: Stiahnutie kódu
       uses: actions/checkout@v4
 
+    - name: Nastavenie Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: npm
+
+    # Android Gradle Plugin (cez Capacitor) vyžaduje Java 21.
+    # 'cache: gradle' tu nefunguje — gradle súbory v repozitári nie sú,
+    # android/ projekt sa generuje až v kroku `cap add android` nižšie.
     - name: Nastavenie Java JDK
       uses: actions/setup-java@v4
       with:
-        java-version: '17'
+        java-version: '21'
         distribution: 'temurin'
-        # Dočasne sme vypli 'cache: gradle', pretože pri vnorenej štruktúre 
-        # priečinkov to robí presne tú chybu, ktorú vidíš na screenshote.
+
+    # postinstall zároveň skopíruje occt-import-js WASM runtime do public/.
+    - name: Inštalácia npm závislostí
+      run: npm ci
+
+    # Capacitor potrebuje hotové webové assety (dist/) ešte pred `cap add`.
+    - name: Build webových assetov
+      run: npm run build
+
+    # android/ je gitignorovaný — natívny projekt sa generuje nanovo
+    # a následne sa doň synchronizujú webové assety a konfigurácia.
+    - name: Vygenerovanie Android projektu (Capacitor)
+      run: npx cap add android
+
+    - name: Synchronizácia assetov do Android projektu
+      run: npx cap sync android
 
     - name: Udelenie práv na spustenie pre Gradle Wrapper
       run: chmod +x ./gradlew
-      working-directory: ./android # <--- Hľadáme v podpriečinku android
+      working-directory: ./android
 
     - name: Vygenerovanie Debug APK
-      run: ./gradlew assembleDebug
-      working-directory: ./android # <--- Spúšťame v podpriečinku android
+      run: ./gradlew assembleDebug --no-daemon
+      working-directory: ./android
 
     - name: Uloženie APK do artefaktov
       uses: actions/upload-artifact@v4
       with:
         name: app-debug-apk
-        # Musíme upraviť aj cestu, odkiaľ sa má APK na konci stiahnuť
-        path: android/app/build/outputs/apk/debug/app-debug.apk
+        path: android/app/build/outputs/apk/debug/*.apk
+        if-no-files-found: error
