@@ -8,7 +8,8 @@ export type ToolId =
   | 'measure-auto'
   | 'measure-distance'
   | 'measure-angle'
-  | 'measure-radius';
+  | 'measure-radius'
+  | 'measure-point';
 
 export type MaterialPresetId = 'original' | 'matte' | 'shiny' | 'metal' | 'glass';
 

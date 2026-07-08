@@ -3,9 +3,10 @@ import type {
   LoadedModel, MaterialAssignment, Measurement, ToolId, Vec3,
 } from '@/core/types';
 import {
-  angleAtVertexDeg, circleFrom3Points, distanceBetween, formatMm, planeToPlane,
+  circleFrom3Points, distanceBetween, formatMm,
+  pairMeasure, type MeasureEntity, type PairResult,
 } from '@/core/measure/geometry';
-import type { SurfacePick } from '@/core/measure/surface';
+import type { SmartPick } from '@/core/measure/surface';
 import { disposeModel } from '@/core/loaders/finalizeModel';
 import { tr, type TranslationKey } from '@/i18n';
 
@@ -13,11 +14,6 @@ interface LoadState {
   state: 'idle' | 'loading' | 'error';
   fileName?: string;
   error?: string;
-}
-
-interface PendingPlane {
-  point: Vec3;
-  normal: Vec3;
 }
 
 interface ViewerState {
@@ -32,8 +28,8 @@ interface ViewerState {
 
   tool: ToolId;
   pendingPoints: Vec3[];
-  /** First face captured by the smart-measure tool. */
-  pendingPlane: PendingPlane | null;
+  /** First face/edge captured by the surface-based measure tools. */
+  pendingEntity: MeasureEntity | null;
   measurements: Measurement[];
 
   globalMaterial: MaterialAssignment;
@@ -57,8 +53,10 @@ interface ViewerState {
   setSelected(id: string | null): void;
 
   setTool(tool: ToolId): void;
+  /** Point-based tools: point-to-point and the 3-point diameter fallback. */
   addMeasurePoint(point: Vec3): void;
-  handleAutoSurface(pick: SurfacePick): void;
+  /** Surface-based tools: auto / distance / angle / diameter. */
+  handleSmartPick(pick: SmartPick, snapped: Vec3): void;
   cancelPending(): void;
   removeMeasurement(id: string): void;
   clearMeasurements(): void;
@@ -74,14 +72,32 @@ interface ViewerState {
 
 let measurementSeq = 0;
 
-const TOOL_HINT_KEYS: Record<Exclude<ToolId, 'select'>, TranslationKey[]> = {
-  'measure-auto': ['hint.auto.start'],
-  'measure-distance': ['hint.distance.0', 'hint.distance.1'],
-  'measure-angle': ['hint.angle.0', 'hint.angle.1', 'hint.angle.2'],
-  'measure-radius': ['hint.radius.0', 'hint.radius.1', 'hint.radius.2'],
+const TOOL_START_HINTS: Record<Exclude<ToolId, 'select'>, TranslationKey> = {
+  'measure-auto': 'hint.auto.start',
+  'measure-distance': 'hint.distance.start',
+  'measure-angle': 'hint.angle.start',
+  'measure-radius': 'hint.radius.start',
+  'measure-point': 'hint.p2p.0',
 };
 
-const pointsNeeded = (tool: ToolId): number => (tool === 'measure-distance' ? 2 : 3);
+/** Hint shown after an entity was captured, per tool. */
+const SECOND_PICK_HINTS: Partial<Record<ToolId, TranslationKey>> = {
+  'measure-auto': 'hint.auto.second',
+  'measure-distance': 'hint.distance.second',
+  'measure-angle': 'hint.angle.second',
+};
+
+const diameterMeasurement = (center: Vec3, axis: Vec3, radius: number, pickPoint: Vec3): Measurement => {
+  const value = radius * 2;
+  return {
+    id: `m${++measurementSeq}`,
+    type: 'radius',
+    points: [pickPoint],
+    value,
+    label: `Ø ${formatMm(value)} mm`,
+    circle: { center, radius, normal: axis },
+  };
+};
 
 export const useViewer = create<ViewerState>()((set, get) => ({
   model: null,
@@ -91,7 +107,7 @@ export const useViewer = create<ViewerState>()((set, get) => ({
   selectedId: null,
   tool: 'select',
   pendingPoints: [],
-  pendingPlane: null,
+  pendingEntity: null,
   measurements: [],
   globalMaterial: { preset: 'original' },
   overrides: {},
@@ -117,7 +133,7 @@ export const useViewer = create<ViewerState>()((set, get) => ({
       selectedId: null,
       tool: 'select',
       pendingPoints: [],
-      pendingPlane: null,
+      pendingEntity: null,
       measurements: [],
       globalMaterial: { preset: 'original' },
       overrides: {},
@@ -148,33 +164,29 @@ export const useViewer = create<ViewerState>()((set, get) => ({
     set({
       tool,
       pendingPoints: [],
-      pendingPlane: null,
-      notice: tool === 'select' ? null : tr(TOOL_HINT_KEYS[tool][0]),
+      pendingEntity: null,
+      notice: tool === 'select' ? null : tr(TOOL_START_HINTS[tool]),
     }),
 
   addMeasurePoint: (point) => {
     const { tool, pendingPoints, measurements } = get();
-    if (tool === 'select' || tool === 'measure-auto') return;
+    if (tool !== 'measure-point' && tool !== 'measure-radius') return;
     const points = [...pendingPoints, point];
-    const needed = pointsNeeded(tool);
+    const needed = tool === 'measure-point' ? 2 : 3;
 
     if (points.length < needed) {
-      set({ pendingPoints: points, notice: tr(TOOL_HINT_KEYS[tool][points.length]) });
+      const hint: TranslationKey =
+        tool === 'measure-point' ? 'hint.p2p.1' : points.length === 1 ? 'hint.radius.1' : 'hint.radius.2';
+      set({ pendingPoints: points, notice: tr(hint) });
       return;
     }
 
     let measurement: Measurement;
-    if (tool === 'measure-distance') {
+    if (tool === 'measure-point') {
       const value = distanceBetween(points[0], points[1]);
       measurement = {
         id: `m${++measurementSeq}`, type: 'distance', points, value,
         label: `${formatMm(value)} mm`,
-      };
-    } else if (tool === 'measure-angle') {
-      const value = angleAtVertexDeg(points[0], points[1], points[2]);
-      measurement = {
-        id: `m${++measurementSeq}`, type: 'angle', points, value,
-        label: `${value.toFixed(1)}°`,
       };
     } else {
       const circle = circleFrom3Points(points[0], points[1], points[2]);
@@ -192,67 +204,101 @@ export const useViewer = create<ViewerState>()((set, get) => ({
     set({
       pendingPoints: [],
       measurements: [...measurements, measurement],
-      notice: `${measurement.label} — ${tr(TOOL_HINT_KEYS[tool][0])}`,
+      notice: `${measurement.label} — ${tr(TOOL_START_HINTS[tool])}`,
     });
   },
 
-  handleAutoSurface: (pick) => {
-    const { pendingPlane, measurements } = get();
-
-    if (pick.kind === 'cylinder' && pick.center && pick.axis && pick.radius) {
-      const value = pick.radius * 2;
-      const measurement: Measurement = {
-        id: `m${++measurementSeq}`,
-        type: 'radius',
-        points: [pick.point],
-        value,
-        label: `Ø ${formatMm(value)} mm`,
-        circle: { center: pick.center, radius: pick.radius, normal: pick.axis },
-      };
-      set({
-        measurements: [...measurements, measurement],
-        pendingPlane: null,
-        pendingPoints: [],
-        notice: `${measurement.label} — ${tr('hint.auto.start')}`,
-      });
+  handleSmartPick: (pick, snapped) => {
+    const { tool, measurements } = get();
+    if (tool !== 'measure-auto' && tool !== 'measure-distance' && tool !== 'measure-angle' && tool !== 'measure-radius') {
       return;
     }
+    const commit = (measurement: Measurement, extraKey?: TranslationKey) =>
+      set({
+        measurements: [...measurements, measurement],
+        pendingEntity: null,
+        pendingPoints: [],
+        notice: `${measurement.label} — ${tr(extraKey ?? TOOL_START_HINTS[tool])}`,
+      });
 
-    if (pick.kind === 'plane' && pick.normal) {
-      if (!pendingPlane) {
-        set({
-          pendingPlane: { point: pick.point, normal: pick.normal },
-          pendingPoints: [pick.point],
-          notice: tr('hint.auto.plane'),
+    // Single-click results: cylinders, cones and circular edges.
+    if (pick.kind === 'cylinder' && (tool === 'measure-auto' || tool === 'measure-radius')) {
+      commit(diameterMeasurement(pick.center, pick.axis, pick.radius, pick.point));
+      return;
+    }
+    if (pick.kind === 'circle' && (tool === 'measure-auto' || tool === 'measure-radius')) {
+      commit(diameterMeasurement(pick.center, pick.axis, pick.radius, pick.point));
+      return;
+    }
+    if (pick.kind === 'cone') {
+      if (tool === 'measure-auto' || tool === 'measure-angle') {
+        // Full apex angle, drawn between the picked generator and its mirror.
+        const value = pick.halfAngleDeg * 2;
+        const mirror: Vec3 = [
+          2 * pick.center[0] - pick.point[0],
+          2 * pick.center[1] - pick.point[1],
+          2 * pick.center[2] - pick.point[2],
+        ];
+        commit({
+          id: `m${++measurementSeq}`,
+          type: 'angle',
+          points: [pick.point, pick.apex, mirror],
+          value,
+          label: `${value.toFixed(1)}°`,
         });
         return;
       }
-      const result = planeToPlane(pendingPlane.point, pendingPlane.normal, pick.point, pick.normal);
-      const measurement: Measurement = {
-        id: `m${++measurementSeq}`,
-        type: 'distance',
-        points: [pendingPlane.point, result.end],
-        value: result.value,
-        label: `${formatMm(result.value)} mm`,
-      };
+      if (tool === 'measure-radius') {
+        // Diameter of the cone at the picked height.
+        commit(diameterMeasurement(pick.center, pick.axis, pick.radiusAtPoint, pick.point));
+        return;
+      }
+    }
+
+    // Everything else resolves to a pairable entity (tool-dependent).
+    const entity = resolveEntity(pick, snapped, tool);
+    if (!entity) {
+      if (tool === 'measure-radius') {
+        // Unrecognized surface — fall back to the 3-point circle flow.
+        get().addMeasurePoint(snapped);
+      } else {
+        set({ notice: tr(tool === 'measure-angle' ? 'hint.angle.invalid' : 'hint.auto.unknown') });
+      }
+      return;
+    }
+    if (tool === 'measure-radius') {
+      // Diameter tool wants circles only; other geometry goes to the fallback.
+      get().addMeasurePoint(snapped);
+      return;
+    }
+
+    const { pendingEntity } = get();
+    if (!pendingEntity) {
+      const hint: TranslationKey =
+        SECOND_PICK_HINTS[tool] ?? 'hint.auto.second';
       set({
-        measurements: [...measurements, measurement],
-        pendingPlane: null,
-        pendingPoints: [],
-        notice: `${measurement.label} — ${tr(result.parallel ? 'hint.auto.start' : 'hint.auto.nonparallel')}`,
+        pendingEntity: entity,
+        pendingPoints: [entity.kind === 'point' ? entity.point : pick.point],
+        notice: tr(hint),
       });
       return;
     }
 
-    set({ notice: tr('hint.auto.unknown') });
+    const mode = tool === 'measure-distance' ? 'distance' : tool === 'measure-angle' ? 'angle' : 'auto';
+    const result = pairMeasure(pendingEntity, entity, mode);
+    if (!result) {
+      set({ notice: tr('hint.angle.invalid') });
+      return;
+    }
+    commit(toMeasurement(result), result.parallel === false ? 'hint.distance.nonparallel' : undefined);
   },
 
-  cancelPending: () => set({ pendingPoints: [], pendingPlane: null, notice: null }),
+  cancelPending: () => set({ pendingPoints: [], pendingEntity: null, notice: null }),
 
   removeMeasurement: (id) =>
     set({ measurements: get().measurements.filter((m) => m.id !== id) }),
 
-  clearMeasurements: () => set({ measurements: [], pendingPoints: [], pendingPlane: null }),
+  clearMeasurements: () => set({ measurements: [], pendingPoints: [], pendingEntity: null }),
 
   applyMaterial: (patch) => {
     const { selectedId, overrides, globalMaterial } = get();
@@ -274,3 +320,34 @@ export const useViewer = create<ViewerState>()((set, get) => ({
 
   setNotice: (notice) => set({ notice }),
 }));
+
+/** How a pick participates in a pair, per tool. */
+function resolveEntity(pick: SmartPick, snapped: Vec3, tool: ToolId): MeasureEntity | null {
+  switch (pick.kind) {
+    case 'plane':
+      return { kind: 'plane', point: pick.point, normal: pick.normal };
+    case 'line':
+      return { kind: 'line', point: pick.point, dir: pick.dir };
+    case 'cylinder':
+    case 'cone':
+      // Distance/angle read the axis (hole pitch, axis-to-face angle…).
+      return { kind: 'line', point: pick.center, dir: pick.axis };
+    case 'circle':
+      // Distance measures from the circle's center, angle from its axis.
+      return tool === 'measure-angle'
+        ? { kind: 'line', point: pick.center, dir: pick.axis }
+        : { kind: 'point', point: pick.center };
+    case 'unknown':
+      return tool === 'measure-distance' ? { kind: 'point', point: snapped } : null;
+  }
+}
+
+function toMeasurement(result: PairResult): Measurement {
+  return {
+    id: `m${++measurementSeq}`,
+    type: result.type,
+    points: result.points,
+    value: result.value,
+    label: result.type === 'angle' ? `${result.value.toFixed(1)}°` : `${formatMm(result.value)} mm`,
+  };
+}

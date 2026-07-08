@@ -15,22 +15,30 @@ const CAD_FORMATS: Record<string, CadFormat> = {
 
 /** Route a picked/dropped file to the right parser and publish the result. */
 export async function openModelFile(file: File): Promise<void> {
+  return openModelBuffer(await file.arrayBuffer(), file.name);
+}
+
+/**
+ * Same, from raw bytes — used by the desktop shell when a file arrives via
+ * an OS file association (double-click in Explorer) instead of the picker.
+ */
+export async function openModelBuffer(buffer: ArrayBuffer, fileName: string): Promise<void> {
   const store = useViewer.getState();
-  const extension = file.name.split('.').pop()?.toLowerCase() ?? '';
-  store.beginLoad(file.name);
+  const extension = fileName.split('.').pop()?.toLowerCase() ?? '';
+  store.beginLoad(fileName);
 
   try {
     let model: LoadedModel;
     if (extension in CAD_FORMATS) {
       // B-rep formats: tessellated by OpenCASCADE (WASM) in a Web Worker.
-      const result = await parseCadInWorker(await file.arrayBuffer(), CAD_FORMATS[extension]);
-      model = buildModelFromCad(file.name, result);
+      const result = await parseCadInWorker(buffer, CAD_FORMATS[extension]);
+      model = buildModelFromCad(fileName, result);
     } else if (extension === 'stl') {
-      model = loadStlModel(await file.arrayBuffer(), file.name);
+      model = loadStlModel(buffer, fileName);
     } else if (extension === 'obj') {
-      model = loadObjModel(await file.text(), file.name);
+      model = loadObjModel(new TextDecoder().decode(buffer), fileName);
     } else if (extension === 'glb') {
-      model = await loadGlbModel(await file.arrayBuffer(), file.name);
+      model = await loadGlbModel(buffer, fileName);
     } else {
       throw new Error(tr('err.unsupported', { ext: extension, list: ACCEPTED_EXTENSIONS.join(', ') }));
     }

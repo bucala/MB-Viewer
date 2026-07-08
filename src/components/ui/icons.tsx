@@ -145,6 +145,14 @@ export const WandIcon = (p: IconProps) => (
   </Svg>
 );
 
+export const PointToPointIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <circle cx="5.5" cy="18.5" r="2.2" />
+    <circle cx="18.5" cy="5.5" r="2.2" />
+    <path d="M7.5 16.5 16.5 7.5" strokeDasharray="2.4 2.2" />
+  </Svg>
+);
+
 export const TrashIcon = (p: IconProps) => (
   <Svg {...p}>
     <path d="M4 7h16M9.5 7V5.5A1.5 1.5 0 0 1 11 4h2a1.5 1.5 0 0 1 1.5 1.5V7M6.5 7l.9 12a2 2 0 0 0 2 1.9h5.2a2 2 0 0 0 2-1.9l.9-12" />

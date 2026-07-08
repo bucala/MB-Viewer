@@ -1,5 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <rect width="32" height="32" rx="7" fill="#171717"/>
-  <path d="M16 6.5 25 11.5 v9 L16 25.5 7 20.5 v-9 Z" fill="none" stroke="#fafafa" stroke-width="1.6" stroke-linejoin="round"/>
-  <path d="M7 11.5 16 16.5 25 11.5 M16 16.5 V25.5" fill="none" stroke="#fafafa" stroke-width="1.6" stroke-linejoin="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3a3f46"/>
+      <stop offset="1" stop-color="#16181c"/>
+    </linearGradient>
+  </defs>
+  <rect x="1" y="1" width="62" height="62" rx="14" fill="url(#bg)" stroke="#5c626b" stroke-width="1.5"/>
+  <path d="M32 11.5 49.7 21.75 v20.5 L32 52.5 14.3 42.25 v-20.5 Z" fill="none" stroke="#b0b8c2" stroke-width="2.2" stroke-linejoin="round"/>
+  <path d="M14.3 21.75 32 32 49.7 21.75 M32 32 V52.5" fill="none" stroke="#b0b8c2" stroke-width="2.2" stroke-linejoin="round"/>
+  <text x="32" y="39.5" font-family="'Segoe UI', system-ui, sans-serif" font-size="20" font-weight="700" fill="#f4f6f9" text-anchor="middle" letter-spacing="0.5" paint-order="stroke" stroke="#14161a" stroke-width="3.5">MB</text>
 </svg>

@@ -11,8 +11,8 @@ Opens **STEP / IGES / BREP** (via OpenCASCADE compiled to WebAssembly), plus **S
 - **Project tree (left panel)** — collapsible assembly hierarchy read from the CAD product structure, with per-node show/hide and per-node **transparency** (ghost mode, strength configurable in Settings; both apply to the whole subtree), search filtering and selection sync with the viewport.
 - **3D canvas + View Cube + axes** — orbit/pan/zoom viewport with an interactive navigation cube (top-right, localized bold labels; clicking faces/edges/corners smoothly animates the camera) and an **XYZ orientation triad** (bottom-right). **Perspective or parallel** (orthographic) projection, switchable in Settings.
 - **Materials & appearance** — presets (*Original, Matte Plastic, Shiny Plastic, Metal, Glass*) and a color palette, applied to the whole model or to the selected part/sub-assembly (material inheritance follows the tree).
-- **Measurement tools** — **smart measure** (click a cylinder or a circular rim → diameter; click two flat faces → distance, measured along the normal for parallel faces) plus dedicated point-to-point **distance**, three-point **angle**, and three-point **diameter** tools with screen-space vertex snapping. Surface types are recovered from the tessellation (facet-normal clustering + least-squares circle fit); raycasting is BVH-accelerated (`three-mesh-bvh`).
-- **Settings menu** — language (**Slovak** default / English), skin (**white / gray / black**), projection mode, transparency strength, OS **file-association** opt-ins (applied by the Tauri installer via `bundle.fileAssociations`), quick actions (sample assembly, grid), with Apply/Reset.
+- **Measurement tools** — surface-based measuring on faces *and* feature edges: a **cylinder face or circular edge → diameter**, a **cone → apex angle**, two **flat faces → distance** (parallel, along the normal) **or angle** (non-parallel), two **straight edges → distance or angle**, plus mixed pairs (face–edge, hole axis–face, hole center–face…). The **Auto** tool does all of this from context; the dedicated **Distance / Angle / Diameter** tools bias the same picks toward their result (Diameter keeps a 3-point circle fallback for free-form meshes), and a separate **point-to-point** tool measures between two snapped points. Geometry is recovered from the tessellation (facet-normal analysis, axis fits from normal-line intersections, feature-edge chaining + line/circle fits); raycasting is BVH-accelerated (`three-mesh-bvh`).
+- **Settings menu** — language (**Slovak** default / English), skin (**white / gray / black**), projection mode, transparency strength, OS **file-association** opt-ins (applied immediately on Windows via per-user registry entries — keeping existing Explorer thumbnails — and also registered by the installer), quick actions (sample assembly, grid), with Apply/Reset.
 - Drag & drop or file-picker loading, adaptive ground grid, camera auto-fit with scale-aware clipping planes, built-in procedural sample assembly.
 
 ## Tech stack
@@ -51,7 +51,7 @@ MB-Viewer/
 │  └─ vendor/occt/                # WASM runtime (copied on npm install, gitignored)
 ├─ scripts/
 │  ├─ copy-occt.mjs               # node_modules → public/vendor/occt
-│  └─ gen-icons.mjs               # placeholder Tauri icons
+│  └─ gen-icons.mjs               # renders the app icon set (PNGs + multi-size ICO)
 ├─ src/
 │  ├─ main.tsx                    # entry: BVH install + React root
 │  ├─ app/App.tsx                 # shell: layout, drag&drop, overlays, hotkeys
@@ -67,7 +67,8 @@ MB-Viewer/
 │  │  │  ├─ meshLoaders.ts        # STL / OBJ / GLB
 │  │  │  └─ finalizeModel.ts      # indexing, bounds, stats, BVH build
 │  │  ├─ materials/presets.ts     # presets + memoized material resolution
-│  │  └─ measure/geometry.ts      # distance/angle/circle-fit math
+│  │  ├─ measure/                 # surface/edge classification + pairing math
+│  │  └─ desktop.ts               # Tauri glue: launch files, associations
 │  └─ components/
 │     ├─ layout/                  # Toolbar, Sidebar (assembly tree), StatusBar
 │     ├─ viewport/                # Canvas, SceneModel, ViewCube, CameraRig,
@@ -75,7 +76,8 @@ MB-Viewer/
 │     └─ ui/icons.tsx             # inline SVG icon set
 └─ src-tauri/                     # Windows/desktop shell (Tauri 2)
    ├─ tauri.conf.json / Cargo.toml
-   └─ src/{main.rs, lib.rs}
+   └─ src/{main.rs, lib.rs,       # launch-file commands, single instance,
+           associations.rs}       # runtime file associations (HKCU registry)
 ```
 
 ## Getting started
@@ -97,7 +99,7 @@ npm run desktop:dev      # dev app with hot reload
 npm run desktop:build    # installer (NSIS/MSI) in src-tauri/target/release/bundle/
 ```
 
-Placeholder icons are committed; replace them with real branding via `npx @tauri-apps/cli icon your-icon.png`.
+App icons are committed and reproducible via `npm run icons` (`scripts/gen-icons.mjs` renders the branding with no image dependencies). Double-clicking a file associated with MB Viewer opens it directly; when the app is already running, the file is routed into the existing window (single-instance).
 
 ### Android (Capacitor)
 
@@ -116,9 +118,10 @@ npm run android:open     # open in Android Studio, run on device/emulator
 ## Notes & roadmap
 
 - Units are assumed **millimeters** (OpenCASCADE normalizes STEP/IGES lengths to mm on import).
-- Diameter measurement fits a circle through three picked points — pick them spread around the circular edge for best accuracy.
+- On free-form meshes (organic STL sculpts) the surface classifiers stay quiet — use the 3-point diameter fallback and the point-to-point tool there.
+- Windows may protect a user-chosen default app (`UserChoice`): MB Viewer then still appears in the extension's **Open with** list, and becomes the default where none was set.
 - `.glb` should be self-contained and uncompressed (no Draco/KTX2 decoders wired up yet); multi-material meshes use their first material.
-- Ideas next: per-face colors from STEP (`brep_faces` is already delivered by the worker), section planes, exploded views, edge/silhouette rendering, orthographic projection toggle, native file associations in the Tauri shell.
+- Ideas next: per-face colors from STEP (`brep_faces` is already delivered by the worker), section planes, exploded views, edge/silhouette rendering.
 
 ## License
 

@@ -5,7 +5,7 @@ import { useViewer } from '@/store/viewerStore';
 import { useSettings } from '@/store/settingsStore';
 import { collectRenderEntries } from '@/core/scene';
 import { resolveMaterial } from '@/core/materials/presets';
-import { classifySurfaceAt } from '@/core/measure/surface';
+import { classifyPickAt } from '@/core/measure/surface';
 import type { RenderEntry, Vec3 } from '@/core/types';
 
 /** Screen-space radius within which a click snaps to the nearest vertex. */
@@ -80,16 +80,18 @@ export function SceneModel() {
     const store = useViewer.getState();
     if (store.tool === 'select') {
       store.setSelected(store.selectedId === entry.nodeId ? null : entry.nodeId);
-    } else if (store.tool === 'measure-auto') {
-      const pick = classifySurfaceAt(
+    } else if (store.tool === 'measure-point') {
+      store.addMeasurePoint(resolveSnappedPoint(event, camera, size));
+    } else {
+      // Surface-based tools: classify the face/edge under the cursor; the
+      // snapped point serves as the fallback when nothing is recognized.
+      const pick = classifyPickAt(
         event.object as THREE.Mesh,
         event.faceIndex ?? null,
         event.point.clone(),
         modelDiagonal,
       );
-      store.handleAutoSurface(pick);
-    } else {
-      store.addMeasurePoint(resolveSnappedPoint(event, camera, size));
+      store.handleSmartPick(pick, resolveSnappedPoint(event, camera, size));
     }
   };
 
