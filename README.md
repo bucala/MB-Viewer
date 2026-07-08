@@ -51,7 +51,9 @@ MB-Viewer/
 │  └─ vendor/occt/                # WASM runtime (copied on npm install, gitignored)
 ├─ scripts/
 │  ├─ copy-occt.mjs               # node_modules → public/vendor/occt
-│  └─ gen-icons.mjs               # renders the app icon set (PNGs + multi-size ICO)
+│  ├─ icon-lib.mjs                # dependency-free icon rasterizer (shared)
+│  ├─ gen-icons.mjs               # desktop icon set (PNGs + multi-size ICO)
+│  └─ android-icons.mjs           # Android launcher mipmaps + adaptive icon
 ├─ src/
 │  ├─ main.tsx                    # entry: BVH install + React root
 │  ├─ app/App.tsx                 # shell: layout, drag&drop, overlays, hotkeys
@@ -68,7 +70,8 @@ MB-Viewer/
 │  │  │  └─ finalizeModel.ts      # indexing, bounds, stats, BVH build
 │  │  ├─ materials/presets.ts     # presets + memoized material resolution
 │  │  ├─ measure/                 # surface/edge classification + pairing math
-│  │  └─ desktop.ts               # Tauri glue: launch files, associations
+│  │  ├─ desktop.ts               # Tauri glue: launch files, associations
+│  │  └─ mobile.ts                # Capacitor glue: fullscreen (status bar)
 │  └─ components/
 │     ├─ layout/                  # Toolbar, Sidebar (assembly tree), StatusBar
 │     ├─ viewport/                # Canvas, SceneModel, ViewCube, CameraRig,
