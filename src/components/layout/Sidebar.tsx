@@ -177,7 +177,9 @@ export function Sidebar() {
   const [query, setQuery] = useState('');
 
   return (
-    <aside className="z-10 flex w-72 shrink-0 flex-col border-r border-line bg-panel max-md:absolute max-md:inset-y-0 max-md:left-0 max-md:shadow-xl">
+    // Width tracks the screen on phones (60 vw) and caps at 18 rem on desktop,
+    // so the tree never swallows the whole viewport in portrait.
+    <aside className="z-10 flex w-[min(18rem,60vw)] shrink-0 flex-col border-r border-line bg-panel max-md:absolute max-md:inset-y-0 max-md:left-0 max-md:shadow-xl">
       <div className="p-3 pb-2">
         <div className="relative">
           <SearchIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[15px] text-ink-faint" />

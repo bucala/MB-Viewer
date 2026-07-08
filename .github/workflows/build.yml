@@ -67,6 +67,11 @@ jobs:
       - name: Sync web assets into the Android project
         run: npx cap sync android
 
+      # Replace the Capacitor template icons with the MB Viewer branding —
+      # android/ is generated fresh, so the icons are applied on every build.
+      - name: Apply the app launcher icons
+        run: node scripts/android-icons.mjs
+
       # Debug APK: directly installable on a device, no signing keys needed.
       # For a Play-Store-ready build, add a keystore as a repository secret
       # and switch to `assembleRelease` with signingConfig.

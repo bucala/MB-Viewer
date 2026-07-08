@@ -51,6 +51,11 @@ jobs:
     - name: Synchronizácia assetov do Android projektu
       run: npx cap sync android
 
+    # Nahradí šablónové Capacitor ikony brandom MB Viewer (mipmapy + adaptívna
+    # ikona) — android/ je generovaný, ikony sa aplikujú pri každom builde.
+    - name: Aplikovanie ikon aplikácie
+      run: node scripts/android-icons.mjs
+
     - name: Udelenie práv na spustenie pre Gradle Wrapper
       run: chmod +x ./gradlew
       working-directory: ./android

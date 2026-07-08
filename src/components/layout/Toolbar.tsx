@@ -138,11 +138,11 @@ export function Toolbar() {
   const clearMeasurements = useViewer((s) => s.clearMeasurements);
 
   return (
-    <header className="z-40 flex h-[60px] shrink-0 items-center gap-0.5 border-b border-line bg-panel/90 px-2 backdrop-blur">
+    // min-h + flex-wrap: on narrow (phone) screens the measure tools wrap
+    // into a second row under the left-side icons instead of overflowing.
+    <header className="z-40 flex min-h-[60px] shrink-0 flex-wrap items-center gap-0.5 border-b border-line bg-panel/90 px-2 py-1 backdrop-blur">
       <div className="mr-1 flex items-center gap-2 pl-1">
-        <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-invert text-[11px] font-semibold tracking-tight text-invert-ink">
-          MB
-        </div>
+        <img src="/favicon.svg" alt="MB Viewer" className="size-8 shrink-0 rounded-lg" />
         <span className="hidden text-[13px] font-medium text-ink md:block">MB Viewer</span>
       </div>
 
