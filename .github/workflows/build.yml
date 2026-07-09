@@ -111,10 +111,18 @@ jobs:
       - name: Cache the Rust build
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri
+          workspaces: |
+            src-tauri
+            thumbnailer
 
       - name: Install npm dependencies
         run: npm ci
+
+      # The Explorer thumbnail provider (thumbnailer/ crate) must be built and
+      # copied into src-tauri/ before `tauri build`, because tauri.conf.json
+      # bundles mb_viewer_thumbs.dll as an app resource and fails if missing.
+      - name: Build the thumbnail provider
+        run: npm run thumbnailer:build
 
       # `tauri build` runs beforeBuildCommand first (npm run build =
       # typecheck + vite build), compiles the Rust shell, then bundles the
