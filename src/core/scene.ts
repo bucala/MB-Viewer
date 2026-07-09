@@ -1,5 +1,7 @@
 import * as THREE from 'three';
-import type { LoadedModel, MaterialAssignment, ModelNode, RenderEntry } from '@/core/types';
+import type {
+  LoadedModel, MaterialAssignment, ModelNode, RenderEntry, SectionState,
+} from '@/core/types';
 
 /**
  * One traversal of the assembly tree resolves everything the renderer needs:
@@ -52,6 +54,27 @@ export function getWorldBox(model: LoadedModel): THREE.Box3 {
   const box = model.boundingBox.clone();
   if (model.upAxis === 'z') box.applyMatrix4(Z_UP_TO_Y_UP);
   return box;
+}
+
+const SECTION_AXIS_INDEX: Record<'x' | 'y' | 'z', number> = { x: 0, y: 1, z: 2 };
+
+/**
+ * World-space clipping plane for the active section, or null when disabled.
+ * The kept half-space is the side the normal points toward; `flip` swaps it.
+ * `position` (0–1) slides the plane across the model's world bounds.
+ */
+export function sectionPlane(model: LoadedModel, section: SectionState): THREE.Plane | null {
+  if (section.axis === 'none') return null;
+  const box = getWorldBox(model);
+  const axis = SECTION_AXIS_INDEX[section.axis];
+  const lo = box.min.getComponent(axis);
+  const hi = box.max.getComponent(axis);
+  // Nudge the ends slightly past the bounds so the extremes clip fully.
+  const span = hi - lo || 1;
+  const coord = lo - span * 0.001 + span * 1.002 * section.position;
+  const normal = new THREE.Vector3().setComponent(axis, section.flip ? 1 : -1);
+  const constant = section.flip ? -coord : coord;
+  return new THREE.Plane(normal, constant);
 }
 
 /** Round to a "nice" 1/2/5×10ⁿ step, for grid sizing. */

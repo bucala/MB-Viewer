@@ -8,8 +8,9 @@ import { ToolButton, ToolbarDivider, type IconType } from '@/components/ui/ToolB
 import { SettingsMenu } from '@/components/layout/SettingsMenu';
 import {
   AngleIcon, CursorIcon, DiameterIcon, FitIcon, FolderOpenIcon, PaletteIcon,
-  PanelLeftIcon, PointToPointIcon, RulerIcon, TrashIcon, WandIcon,
+  PanelLeftIcon, PointToPointIcon, RulerIcon, SectionIcon, TrashIcon, WandIcon,
 } from '@/components/ui/icons';
+import type { SectionAxis } from '@/core/types';
 
 const MEASURE_TOOLS: { id: ToolId; labelKey: TranslationKey; tipKey: TranslationKey; icon: IconType }[] = [
   { id: 'select', labelKey: 'toolbar.select', tipKey: 'tip.select', icon: CursorIcon },
@@ -126,6 +127,83 @@ function MaterialMenu() {
   );
 }
 
+function SectionMenu() {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const t = useT();
+  const model = useViewer((s) => s.model);
+  const section = useViewer((s) => s.section);
+  const setSection = useViewer((s) => s.setSection);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!containerRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => document.removeEventListener('pointerdown', onPointerDown);
+  }, [open]);
+
+  const axes: { id: SectionAxis; labelKey: TranslationKey }[] = [
+    { id: 'none', labelKey: 'section.none' },
+    { id: 'x', labelKey: 'section.x' },
+    { id: 'y', labelKey: 'section.y' },
+    { id: 'z', labelKey: 'section.z' },
+  ];
+
+  return (
+    <div ref={containerRef} className="relative">
+      <ToolButton
+        icon={SectionIcon}
+        label={t('toolbar.section')}
+        title={t('tip.section')}
+        active={open || section.axis !== 'none'}
+        disabled={!model}
+        onClick={() => setOpen((value) => !value)}
+      />
+      {open && (
+        <div className="absolute left-1/2 top-full z-50 mt-2 w-[17rem] -translate-x-1/2 rounded-2xl border border-line bg-panel p-3 shadow-xl">
+          <div className="grid grid-cols-4 gap-1">
+            {axes.map((axis) => (
+              <button
+                key={axis.id}
+                type="button"
+                onClick={() => setSection({ axis: axis.id })}
+                className={`rounded-lg px-2 py-1.5 text-[12px] transition-colors
+                  ${section.axis === axis.id ? 'bg-accent-soft text-accent' : 'text-ink-soft hover:bg-hover hover:text-ink'}`}
+              >
+                {t(axis.labelKey)}
+              </button>
+            ))}
+          </div>
+
+          <div className={section.axis === 'none' ? 'pointer-events-none opacity-40' : ''}>
+            <p className="mb-1.5 mt-3 text-[10.5px] font-semibold uppercase tracking-wide text-ink-faint">
+              {t('section.position')}: {Math.round(section.position * 100)} %
+            </p>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={Math.round(section.position * 100)}
+              onChange={(event) => setSection({ position: Number(event.target.value) / 100 })}
+              className="w-full"
+            />
+            <button
+              type="button"
+              onClick={() => setSection({ flip: !section.flip })}
+              className={`mt-2 w-full rounded-lg border py-1.5 text-[12px] transition-colors
+                ${section.flip ? 'border-accent/40 bg-accent-soft text-accent' : 'border-line text-ink-soft hover:bg-hover'}`}
+            >
+              {t('section.flip')}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function Toolbar() {
   const t = useT();
   const model = useViewer((s) => s.model);
@@ -172,6 +250,7 @@ export function Toolbar() {
 
       <ToolbarDivider />
       <MaterialMenu />
+      <SectionMenu />
 
       <ToolbarDivider />
       <ToolButton icon={FitIcon} label={t('toolbar.fit')} title={t('tip.fit')} disabled={!model} onClick={requestFit} />

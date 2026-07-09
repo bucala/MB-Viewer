@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useViewer } from '@/store/viewerStore';
 import {
   DEFAULT_SETTINGS, useSettings,
-  type Lang, type ProjectionMode, type SettingsValues, type ThemeId,
+  type Lang, type ProjectionMode, type RenderQuality, type SettingsValues, type ThemeId,
 } from '@/store/settingsStore';
 import { tr, useT } from '@/i18n';
 import { applyFileAssociations } from '@/core/desktop';
@@ -12,8 +12,8 @@ import { ToolButton } from '@/components/ui/ToolButton';
 import { CubeIcon, GridIcon, MenuIcon } from '@/components/ui/icons';
 
 function snapshot(): SettingsValues {
-  const { language, theme, projection, transparency, fileAssociations } = useSettings.getState();
-  return { language, theme, projection, transparency, fileAssociations: { ...fileAssociations } };
+  const { language, theme, projection, quality, transparency, fileAssociations } = useSettings.getState();
+  return { language, theme, projection, quality, transparency, fileAssociations: { ...fileAssociations } };
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
@@ -162,6 +162,17 @@ export function SettingsMenu() {
             options={[
               { id: 'perspective', label: t('set.projection.perspective') },
               { id: 'parallel', label: t('set.projection.parallel') },
+            ]}
+          />
+
+          <SectionLabel>{t('set.quality')}</SectionLabel>
+          <Segmented<RenderQuality>
+            value={draft.quality}
+            onChange={(quality) => patch({ quality })}
+            options={[
+              { id: 'low', label: t('set.quality.low') },
+              { id: 'medium', label: t('set.quality.medium') },
+              { id: 'high', label: t('set.quality.high') },
             ]}
           />
 

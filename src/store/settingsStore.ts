@@ -4,11 +4,14 @@ import { persist } from 'zustand/middleware';
 export type Lang = 'sk' | 'en';
 export type ThemeId = 'white' | 'gray' | 'black';
 export type ProjectionMode = 'perspective' | 'parallel';
+export type RenderQuality = 'low' | 'medium' | 'high';
 
 export interface SettingsValues {
   language: Lang;
   theme: ThemeId;
   projection: ProjectionMode;
+  /** Render resolution tier: device pixel ratio + antialiasing. */
+  quality: RenderQuality;
   /** Opacity used for parts toggled translucent in the tree (0.1–0.9). */
   transparency: number;
   /** Per-extension opt-in for OS file association (applied by the desktop installer). */
@@ -19,6 +22,7 @@ export const DEFAULT_SETTINGS: SettingsValues = {
   language: 'sk',
   theme: 'white',
   projection: 'perspective',
+  quality: 'high',
   transparency: 0.35,
   fileAssociations: {},
 };

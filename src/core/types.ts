@@ -13,6 +13,15 @@ export type ToolId =
 
 export type MaterialPresetId = 'original' | 'matte' | 'shiny' | 'metal' | 'glass';
 
+export type SectionAxis = 'none' | 'x' | 'y' | 'z';
+
+/** Cross-section (clipping) plane state. `position` is normalized 0–1 over the model bounds. */
+export interface SectionState {
+  axis: SectionAxis;
+  position: number;
+  flip: boolean;
+}
+
 export interface MaterialAssignment {
   preset: MaterialPresetId;
   /** CSS hex. Undefined = keep the color embedded in the CAD file. */

@@ -153,6 +153,15 @@ export const PointToPointIcon = (p: IconProps) => (
   </Svg>
 );
 
+export const SectionIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M4 8.5 12 4l8 4.5v7L12 20l-8-4.5Z" />
+    <path d="M4 8.5 12 13l8-4.5" />
+    <path d="M12 13v7" />
+    <path d="M12 4v9" strokeDasharray="2 2" opacity=".6" />
+  </Svg>
+);
+
 export const TrashIcon = (p: IconProps) => (
   <Svg {...p}>
     <path d="M4 7h16M9.5 7V5.5A1.5 1.5 0 0 1 11 4h2a1.5 1.5 0 0 1 1.5 1.5V7M6.5 7l.9 12a2 2 0 0 0 2 1.9h5.2a2 2 0 0 0 2-1.9l.9-12" />

@@ -1,0 +1,15 @@
+[package]
+name = "mb-viewer-thumbnailer"
+version = "0.1.0"
+description = "MB Viewer Explorer thumbnail provider (Windows COM in-process server)"
+edition = "2021"
+
+# Produces mb_viewer_thumbs.dll — a Windows shell thumbnail provider.
+[lib]
+name = "mb_viewer_thumbs"
+crate-type = ["cdylib"]
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = true

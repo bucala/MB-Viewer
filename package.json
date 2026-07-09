@@ -12,8 +12,9 @@
     "postinstall": "node scripts/copy-occt.mjs",
     "icons": "node scripts/gen-icons.mjs",
     "tauri": "tauri",
-    "desktop:dev": "tauri dev",
-    "desktop:build": "tauri build",
+    "thumbnailer:build": "node scripts/build-thumbnailer.mjs",
+    "desktop:dev": "npm run thumbnailer:build && tauri dev",
+    "desktop:build": "npm run thumbnailer:build && tauri build",
     "android:icons": "node scripts/android-icons.mjs",
     "android:sync": "npm run build && cap sync android && node scripts/android-icons.mjs",
     "android:open": "cap open android"

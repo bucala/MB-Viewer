@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { openModelBuffer } from '@/core/loaders/openModelFile';
+import { ACCEPTED_EXTENSIONS, openModelBuffer } from '@/core/loaders/openModelFile';
 
 /**
  * Glue to the Tauri desktop shell. Every entry point is a no-op on the web
@@ -47,7 +47,12 @@ export async function applyFileAssociations(
   fileAssociations: Record<string, boolean>,
 ): Promise<boolean> {
   if (!isDesktopShell()) return false;
-  const choices = Object.entries(fileAssociations).map(([ext, enabled]) => ({ ext, enabled }));
-  if (choices.length === 0) return false;
+  // Always send every supported extension with its current on/off state, so a
+  // freshly opened Settings panel applies immediately and unchecked types get
+  // unregistered rather than silently skipped.
+  const choices = ACCEPTED_EXTENSIONS.map((ext) => ({
+    ext,
+    enabled: Boolean(fileAssociations[ext]),
+  }));
   return invoke<boolean>('apply_file_associations', { choices });
 }

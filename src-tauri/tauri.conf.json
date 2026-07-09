@@ -33,6 +33,7 @@
       "icons/128x128@2x.png",
       "icons/icon.ico"
     ],
+    "resources": ["mb_viewer_thumbs.dll"],
     "fileAssociations": [
       { "ext": ["step", "stp"], "name": "STEP model", "description": "STEP CAD model", "role": "Viewer" },
       { "ext": ["iges", "igs"], "name": "IGES model", "description": "IGES CAD model", "role": "Viewer" },

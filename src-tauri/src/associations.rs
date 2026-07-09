@@ -42,11 +42,16 @@ pub fn apply(choices: &[AssociationChoice]) -> Result<bool, String> {
 #[cfg(windows)]
 mod windows_impl {
     use super::{is_supported_extension, AssociationChoice};
-    use winreg::enums::{HKEY_CLASSES_ROOT, HKEY_CURRENT_USER, KEY_READ, KEY_SET_VALUE};
+    use winreg::enums::{
+        HKEY_CLASSES_ROOT, HKEY_CURRENT_USER, KEY_ALL_ACCESS, KEY_READ, KEY_SET_VALUE,
+    };
     use winreg::{RegKey, RegValue};
 
     /// IThumbnailProvider shell-extension interface id.
     const THUMBNAIL_IID: &str = "{e357fccd-a995-4576-b01f-234630154e96}";
+    /// CLSID of MB Viewer's own thumbnail provider (mb_viewer_thumbs.dll).
+    /// Must match `CLSID_MB_THUMB` in the thumbnailer crate.
+    const THUMB_CLSID: &str = "{2B6E9C7A-1F4D-4A9E-B3C2-7A1E9D0C5F42}";
     /// Value on the extension key remembering the ProgID we displaced.
     const BACKUP_VALUE: &str = "MBViewerPreviousProgId";
 
@@ -90,9 +95,20 @@ mod windows_impl {
         let (command, _) = progid_key.create_subkey("shell\\open\\command").map_err(err)?;
         command.set_value("", &format!("\"{exe}\" \"%1\"")).map_err(err)?;
 
-        // Keep Explorer thumbnails: inherit the thumbnail provider that served
-        // this extension before us; otherwise show the MB Viewer app icon.
-        if let Some(clsid) = existing_thumbnail_provider(ext, &progid) {
+        // Explorer thumbnails, best option first:
+        //  1. MB Viewer's own provider DLL — renders real 3D previews.
+        //  2. Inherit whatever provider served this extension before us.
+        //  3. Fall back to the MB Viewer app icon.
+        if let Some(dll) = thumbnailer_dll_path() {
+            ensure_thumb_clsid(&dll)?;
+            let (shellex, _) = progid_key
+                .create_subkey(format!("ShellEx\\{THUMBNAIL_IID}"))
+                .map_err(err)?;
+            shellex.set_value("", &THUMB_CLSID.to_string()).map_err(err)?;
+            // Icon for views that don't draw thumbnails (details/list).
+            let (icon, _) = progid_key.create_subkey("DefaultIcon").map_err(err)?;
+            icon.set_value("", &format!("\"{exe}\",0")).map_err(err)?;
+        } else if let Some(clsid) = existing_thumbnail_provider(ext, &progid) {
             let (shellex, _) = progid_key
                 .create_subkey(format!("ShellEx\\{THUMBNAIL_IID}"))
                 .map_err(err)?;
@@ -119,7 +135,53 @@ mod windows_impl {
                 &RegValue { bytes: vec![], vtype: winreg::enums::RegType::REG_NONE },
             )
             .map_err(err)?;
+
+        // Modern Windows honors a per-user, hash-protected UserChoice over the
+        // Classes default. We cannot forge its hash, but deleting it lets our
+        // freshly written ProgID become the effective default for double-click.
+        clear_user_choice(ext);
         Ok(())
+    }
+
+    /// Locate the bundled thumbnail-provider DLL next to the running exe.
+    fn thumbnailer_dll_path() -> Option<String> {
+        let exe = std::env::current_exe().ok()?;
+        let dir = exe.parent()?;
+        for candidate in ["mb_viewer_thumbs.dll", "resources\\mb_viewer_thumbs.dll"] {
+            let path = dir.join(candidate);
+            if path.is_file() {
+                return Some(path.to_string_lossy().into_owned());
+            }
+        }
+        None
+    }
+
+    /// Register (per-user) the thumbnail provider's COM in-process server so
+    /// Explorer can load `mb_viewer_thumbs.dll` for our CLSID.
+    fn ensure_thumb_clsid(dll: &str) -> Result<(), String> {
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let (clsid_key, _) = hkcu
+            .create_subkey(format!("Software\\Classes\\CLSID\\{THUMB_CLSID}"))
+            .map_err(err)?;
+        clsid_key
+            .set_value("", &"MB Viewer Thumbnail Provider")
+            .map_err(err)?;
+        let (inproc, _) = clsid_key.create_subkey("InprocServer32").map_err(err)?;
+        inproc.set_value("", &dll.to_string()).map_err(err)?;
+        inproc.set_value("ThreadingModel", &"Apartment").map_err(err)?;
+        Ok(())
+    }
+
+    /// Remove `HKCU\...\FileExts\.<ext>\UserChoice` so the Classes default (our
+    /// ProgID, or the restored previous one) takes effect again.
+    fn clear_user_choice(ext: &str) {
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let path = format!(
+            "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\.{ext}"
+        );
+        if let Ok(file_ext) = hkcu.open_subkey_with_flags(&path, KEY_ALL_ACCESS) {
+            let _ = file_ext.delete_subkey_all("UserChoice");
+        }
     }
 
     fn unregister(classes: &RegKey, ext: &str) -> Result<(), String> {
@@ -144,6 +206,8 @@ mod windows_impl {
             }
         }
         let _ = classes.delete_subkey_all(&progid);
+        // Drop any UserChoice pointing at us so Windows re-resolves the default.
+        clear_user_choice(ext);
         Ok(())
     }
 

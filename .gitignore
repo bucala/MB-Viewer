@@ -12,6 +12,9 @@ public/vendor/
 # Tauri
 src-tauri/target/
 src-tauri/gen/
+# Thumbnail provider (built + copied by scripts/build-thumbnailer.mjs)
+thumbnailer/target/
+src-tauri/mb_viewer_thumbs.dll
 
 # Capacitor native project (generate with `npx cap add android`)
 android/

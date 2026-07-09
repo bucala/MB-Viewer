@@ -1,9 +1,9 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import * as THREE from 'three';
 import { useThree, type ThreeEvent } from '@react-three/fiber';
 import { useViewer } from '@/store/viewerStore';
 import { useSettings } from '@/store/settingsStore';
-import { collectRenderEntries } from '@/core/scene';
+import { collectRenderEntries, sectionPlane } from '@/core/scene';
 import { resolveMaterial } from '@/core/materials/presets';
 import { classifyPickAt } from '@/core/measure/surface';
 import type { RenderEntry, Vec3 } from '@/core/types';
@@ -54,9 +54,11 @@ export function SceneModel() {
   const overrides = useViewer((s) => s.overrides);
   const globalMaterial = useViewer((s) => s.globalMaterial);
   const selectedId = useViewer((s) => s.selectedId);
+  const section = useViewer((s) => s.section);
   const transparency = useSettings((s) => s.transparency);
   const camera = useThree((s) => s.camera);
   const size = useThree((s) => s.size);
+  const invalidate = useThree((s) => s.invalidate);
 
   const entries = useMemo(
     () =>
@@ -65,6 +67,23 @@ export function SceneModel() {
         : [],
     [model, hidden, translucent, overrides, globalMaterial, selectedId],
   );
+
+  const clippingPlanes = useMemo(
+    () => (model ? sectionPlane(model, section) : null),
+    [model, section],
+  );
+
+  // Attach the section plane to just the model's materials (local clipping),
+  // so the grid, gizmos and measurements stay whole.
+  useEffect(() => {
+    const planes = clippingPlanes ? [clippingPlanes] : null;
+    for (const entry of entries) {
+      const material = resolveMaterial(entry, transparency);
+      material.clippingPlanes = planes;
+      material.needsUpdate = true;
+    }
+    invalidate();
+  }, [entries, clippingPlanes, transparency, invalidate]);
 
   const modelDiagonal = useMemo(
     () => (model ? model.boundingBox.getSize(new THREE.Vector3()).length() : 1),

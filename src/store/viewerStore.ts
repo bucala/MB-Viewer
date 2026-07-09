@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type {
-  LoadedModel, MaterialAssignment, Measurement, ToolId, Vec3,
+  LoadedModel, MaterialAssignment, Measurement, SectionState, ToolId, Vec3,
 } from '@/core/types';
 import {
   circleFrom3Points, distanceBetween, formatMm,
@@ -35,6 +35,8 @@ interface ViewerState {
   globalMaterial: MaterialAssignment;
   overrides: Record<string, MaterialAssignment>;
 
+  section: SectionState;
+
   gridVisible: boolean;
   sidebarOpen: boolean;
   /** Bumped to ask the camera rig to re-frame the model. */
@@ -63,6 +65,8 @@ interface ViewerState {
 
   applyMaterial(patch: Partial<MaterialAssignment>): void;
   resetMaterials(): void;
+
+  setSection(patch: Partial<SectionState>): void;
 
   requestFit(): void;
   toggleGrid(): void;
@@ -111,6 +115,7 @@ export const useViewer = create<ViewerState>()((set, get) => ({
   measurements: [],
   globalMaterial: { preset: 'original' },
   overrides: {},
+  section: { axis: 'none', position: 0.5, flip: false },
   gridVisible: true,
   sidebarOpen: true,
   fitSignal: 0,
@@ -137,6 +142,7 @@ export const useViewer = create<ViewerState>()((set, get) => ({
       measurements: [],
       globalMaterial: { preset: 'original' },
       overrides: {},
+      section: { axis: 'none', position: 0.5, flip: false },
       notice: null,
       fitSignal: get().fitSignal + 1,
     });
@@ -311,6 +317,8 @@ export const useViewer = create<ViewerState>()((set, get) => ({
   },
 
   resetMaterials: () => set({ overrides: {}, globalMaterial: { preset: 'original' } }),
+
+  setSection: (patch) => set({ section: { ...get().section, ...patch } }),
 
   requestFit: () => set({ fitSignal: get().fitSignal + 1 }),
 

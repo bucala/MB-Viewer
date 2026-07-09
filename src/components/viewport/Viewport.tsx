@@ -53,12 +53,20 @@ function AdaptiveGrid() {
 export function Viewport() {
   const theme = useSettings((s) => s.theme);
   const projection = useSettings((s) => s.projection);
+  const quality = useSettings((s) => s.quality);
+  const antialias = quality !== 'low';
+  const dpr: [number, number] =
+    quality === 'low' ? [0.5, 1] : quality === 'medium' ? [1, 1.5] : [1, 2];
 
   return (
     <Canvas
-      dpr={[1, 2]}
-      gl={{ antialias: true }}
+      key={antialias ? 'aa' : 'noaa'}
+      dpr={dpr}
+      gl={{ antialias }}
       className="touch-none"
+      // Local clipping: section planes apply only to materials that opt in
+      // (the model), never to the grid, gizmos or measurement overlays.
+      onCreated={({ gl }) => { gl.localClippingEnabled = true; }}
       onPointerMissed={() => {
         const store = useViewer.getState();
         if (store.tool === 'select') store.setSelected(null);
