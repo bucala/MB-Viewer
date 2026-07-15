@@ -71,10 +71,11 @@ function createCapMaterial(color: string, preset: MaterialPresetId): THREE.MeshS
 
 /** One part's cross-section cap, colored from its own outer surface. */
 function PartCap({
-  entry, plane, upAxis, capSize, center, renderOrder,
+  entry, plane, section, upAxis, capSize, center, renderOrder,
 }: {
   entry: RenderEntry;
   plane: THREE.Plane;
+  section: SectionState;
   upAxis: LoadedModel['upAxis'];
   capSize: number;
   center: THREE.Vector3;
@@ -96,6 +97,8 @@ function PartCap({
   const capMaterial = useMemo(() => createCapMaterial(color, capPreset), [color, capPreset]);
 
   // Sit the cap on the clip plane, centered on the model's cross-section.
+  // `plane` is a stable, mutated instance, so we key this on `section` (whose
+  // identity changes on every slider move) to follow the cut as it slides.
   useEffect(() => {
     const cap = capRef.current;
     if (!cap) return;
@@ -103,7 +106,7 @@ function PartCap({
     cap.position.copy(center).addScaledVector(plane.normal, -dist);
     cap.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), plane.normal);
     invalidate();
-  }, [plane, center, entry, invalidate]);
+  }, [plane, section, center, invalidate]);
 
   useEffect(
     () => () => {
@@ -154,6 +157,7 @@ export function SectionCaps({
           key={`${entry.mesh.id}:${section.axis}`}
           entry={entry}
           plane={plane}
+          section={section}
           upAxis={model.upAxis}
           capSize={capSize}
           center={center}
