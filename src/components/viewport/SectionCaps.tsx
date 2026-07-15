@@ -6,11 +6,11 @@ import { PRESET_SURFACE, darkenHex, resolveAppearance } from '@/core/materials/p
 import type { LoadedModel, MaterialPresetId, RenderEntry, SectionState } from '@/core/types';
 
 /**
- * Solid-looking section. Marking the stencil wherever the part has a back face
- * behind the clip plane fills the whole cross-section silhouette, so the cap
- * always covers the cut area for solids AND open shells (e.g. tubes/cones),
- * instead of only closed manifold volumes. The cap quad then fills exactly that
- * region in the part's own color, 30% darker.
+ * Solid-looking section (standard stencil capping): back faces behind the clip
+ * plane increment the stencil, front faces decrement it, so the count is
+ * non-zero exactly where the plane passes through solid material. The cap quad
+ * then fills that region in the part's own color, 30% darker. Holes stay open;
+ * genuinely open shells show their (darker) interior back faces instead.
  *
  * Each part gets its own stencil+cap pair on an increasing renderOrder, and the
  * stencil buffer is cleared after every cap, so parts never bleed into one
@@ -23,12 +23,14 @@ function createStencilGroup(
 ): THREE.Group {
   const group = new THREE.Group();
 
-  const back = new THREE.MeshBasicMaterial();
-  back.depthWrite = false;
-  back.depthTest = false;
-  back.colorWrite = false;
-  back.stencilWrite = true;
-  back.stencilFunc = THREE.AlwaysStencilFunc;
+  const base = new THREE.MeshBasicMaterial();
+  base.depthWrite = false;
+  base.depthTest = false;
+  base.colorWrite = false;
+  base.stencilWrite = true;
+  base.stencilFunc = THREE.AlwaysStencilFunc;
+
+  const back = base.clone();
   back.side = THREE.BackSide;
   back.clippingPlanes = [plane];
   back.stencilFail = THREE.IncrementWrapStencilOp;
@@ -37,6 +39,16 @@ function createStencilGroup(
   const backMesh = new THREE.Mesh(geometry, back);
   backMesh.renderOrder = renderOrder;
   group.add(backMesh);
+
+  const front = base.clone();
+  front.side = THREE.FrontSide;
+  front.clippingPlanes = [plane];
+  front.stencilFail = THREE.DecrementWrapStencilOp;
+  front.stencilZFail = THREE.DecrementWrapStencilOp;
+  front.stencilZPass = THREE.DecrementWrapStencilOp;
+  const frontMesh = new THREE.Mesh(geometry, front);
+  frontMesh.renderOrder = renderOrder;
+  group.add(frontMesh);
 
   return group;
 }
