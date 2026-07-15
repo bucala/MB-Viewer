@@ -4,10 +4,10 @@ import { useThree, type ThreeEvent } from '@react-three/fiber';
 import { useViewer } from '@/store/viewerStore';
 import { useSettings } from '@/store/settingsStore';
 import { collectRenderEntries, sectionPlane } from '@/core/scene';
-import { DEFAULT_CAD_COLOR, darkenHex, resolveMaterial } from '@/core/materials/presets';
+import { resolveMaterial } from '@/core/materials/presets';
 import { classifyPickAt } from '@/core/measure/surface';
 import { SectionCaps } from '@/components/viewport/SectionCaps';
-import type { MaterialPresetId, RenderEntry, Vec3 } from '@/core/types';
+import type { RenderEntry, Vec3 } from '@/core/types';
 
 /** Screen-space radius within which a click snaps to the nearest vertex. */
 const SNAP_RADIUS_PX = 14;
@@ -98,13 +98,6 @@ export function SceneModel() {
     invalidate();
   }, [entries, sectionActive, transparency, invalidate]);
 
-  const capColor = useMemo(
-    () => darkenHex(globalMaterial.color ?? DEFAULT_CAD_COLOR),
-    [globalMaterial.color],
-  );
-  const capPreset: MaterialPresetId =
-    globalMaterial.preset === 'glass' ? 'matte' : globalMaterial.preset;
-
   const modelDiagonal = useMemo(
     () => (model ? model.boundingBox.getSize(new THREE.Vector3()).length() : 1),
     [model],
@@ -156,8 +149,6 @@ export function SceneModel() {
           entries={entries}
           plane={planeRef.current}
           section={section}
-          capColor={capColor}
-          capPreset={capPreset}
         />
       )}
     </>

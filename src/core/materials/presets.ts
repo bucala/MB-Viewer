@@ -11,7 +11,7 @@ export const SWATCH_COLORS = [
 
 /** Neutral fallback when the CAD file carries no color. */
 export const DEFAULT_CAD_COLOR = '#aab4bf';
-const SELECTION_TINT = '#3b82f6';
+const SELECTION_TINT = '#d97757';
 
 /** How much darker interior (back-facing) surfaces and section caps are. */
 export const INTERIOR_DARKEN = 0.3;
@@ -88,6 +88,15 @@ function applyTranslucency(material: THREE.Material, opacity: number): void {
 // Materials are shared across meshes and memoized by appearance key — a
 // 5,000-part assembly with one global preset uses a handful of materials.
 const cache = new Map<string, THREE.Material>();
+
+/** The outer color and preset a part is actually drawn with. */
+export function resolveAppearance(entry: RenderEntry): { color: string; preset: MaterialPresetId } {
+  const { assignment, mesh } = entry;
+  return {
+    color: assignment.color ?? mesh.color ?? DEFAULT_CAD_COLOR,
+    preset: assignment.preset,
+  };
+}
 
 export function resolveMaterial(entry: RenderEntry, translucentOpacity = 0.35): THREE.Material {
   const { assignment, mesh, selected, translucent } = entry;

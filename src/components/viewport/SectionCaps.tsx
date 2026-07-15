@@ -2,16 +2,24 @@ import { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { useThree } from '@react-three/fiber';
 import { getWorldBox } from '@/core/scene';
-import { PRESET_SURFACE } from '@/core/materials/presets';
+import { PRESET_SURFACE, darkenHex, resolveAppearance } from '@/core/materials/presets';
 import type { LoadedModel, MaterialPresetId, RenderEntry, SectionState } from '@/core/types';
 
 /**
  * Solid-looking section: two stencil passes (back faces increment, front faces
- * decrement) mark the model's interior where the clip plane cuts it, then a
- * capping quad fills exactly that region. Closed volumes read as solid;
- * open shells simply show their (darker) back faces through the cut.
+ * decrement) mark a part's interior where the clip plane cuts it, then a
+ * capping quad fills exactly that region in the part's own color, 30% darker.
+ * Closed volumes read as solid; open shells show their (darker) back faces.
+ *
+ * Each part gets its own stencil+cap pair on an increasing renderOrder, and the
+ * stencil buffer is cleared after every cap, so parts never bleed into one
+ * another and each cap is colored from that part's outer surface.
  */
-function createStencilGroup(geometry: THREE.BufferGeometry, plane: THREE.Plane): THREE.Group {
+function createStencilGroup(
+  geometry: THREE.BufferGeometry,
+  plane: THREE.Plane,
+  renderOrder: number,
+): THREE.Group {
   const group = new THREE.Group();
 
   const base = new THREE.MeshBasicMaterial();
@@ -28,7 +36,7 @@ function createStencilGroup(geometry: THREE.BufferGeometry, plane: THREE.Plane):
   back.stencilZFail = THREE.IncrementWrapStencilOp;
   back.stencilZPass = THREE.IncrementWrapStencilOp;
   const backMesh = new THREE.Mesh(geometry, back);
-  backMesh.renderOrder = 1;
+  backMesh.renderOrder = renderOrder;
   group.add(backMesh);
 
   const front = base.clone();
@@ -38,7 +46,7 @@ function createStencilGroup(geometry: THREE.BufferGeometry, plane: THREE.Plane):
   front.stencilZFail = THREE.DecrementWrapStencilOp;
   front.stencilZPass = THREE.DecrementWrapStencilOp;
   const frontMesh = new THREE.Mesh(geometry, front);
-  frontMesh.renderOrder = 1;
+  frontMesh.renderOrder = renderOrder;
   group.add(frontMesh);
 
   return group;
@@ -47,11 +55,11 @@ function createStencilGroup(geometry: THREE.BufferGeometry, plane: THREE.Plane):
 function createCapMaterial(color: string, preset: MaterialPresetId): THREE.MeshStandardMaterial {
   const surface = PRESET_SURFACE[preset];
   const material = new THREE.MeshStandardMaterial({
-    color: new THREE.Color(color),
+    color: new THREE.Color(darkenHex(color)),
     roughness: surface.roughness,
     metalness: surface.metalness,
     side: THREE.DoubleSide,
-    // Fill only where the stencil marks the model's interior.
+    // Fill only where the stencil marks the part's interior.
     stencilWrite: true,
     stencilRef: 0,
     stencilFunc: THREE.NotEqualStencilFunc,
@@ -65,52 +73,48 @@ function createCapMaterial(color: string, preset: MaterialPresetId): THREE.MeshS
       '#include <color_fragment>',
       `#include <color_fragment>
        float mbHatch = mod(gl_FragCoord.x + gl_FragCoord.y, 6.0);
-       if (mbHatch < 1.5) diffuseColor.rgb *= 0.72;`,
+       if (mbHatch < 1.5) diffuseColor.rgb *= 0.82;`,
     );
   };
   material.customProgramCacheKey = () => 'mbv-cap-hatch';
   return material;
 }
 
-export function SectionCaps({
-  model, entries, plane, section, capColor, capPreset,
+/** One part's cross-section cap, colored from its own outer surface. */
+function PartCap({
+  entry, plane, upAxis, capSize, center, renderOrder,
 }: {
-  model: LoadedModel;
-  entries: RenderEntry[];
+  entry: RenderEntry;
   plane: THREE.Plane;
-  section: SectionState;
-  capColor: string;
-  capPreset: MaterialPresetId;
+  upAxis: LoadedModel['upAxis'];
+  capSize: number;
+  center: THREE.Vector3;
+  renderOrder: number;
 }) {
   const invalidate = useThree((s) => s.invalidate);
   const capRef = useRef<THREE.Mesh>(null);
+  const { color, preset } = resolveAppearance(entry);
+  const capPreset: MaterialPresetId = preset === 'glass' ? 'matte' : preset;
 
   const stencilGroup = useMemo(() => {
-    const outer = new THREE.Group();
     const rotated = new THREE.Group();
-    rotated.rotation.x = model.upAxis === 'z' ? -Math.PI / 2 : 0;
-    for (const entry of entries) rotated.add(createStencilGroup(entry.mesh.geometry, plane));
-    outer.add(rotated);
-    return outer;
-  }, [model, entries, plane]);
+    rotated.rotation.x = upAxis === 'z' ? -Math.PI / 2 : 0;
+    rotated.add(createStencilGroup(entry.mesh.geometry, plane, renderOrder));
+    return rotated;
+  }, [entry.mesh.geometry, plane, upAxis, renderOrder]);
 
-  const capGeometry = useMemo(() => {
-    const size = getWorldBox(model).getSize(new THREE.Vector3()).length() * 1.25 || 1;
-    return new THREE.PlaneGeometry(size, size);
-  }, [model]);
-
-  const capMaterial = useMemo(() => createCapMaterial(capColor, capPreset), [capColor, capPreset]);
+  const capGeometry = useMemo(() => new THREE.PlaneGeometry(capSize, capSize), [capSize]);
+  const capMaterial = useMemo(() => createCapMaterial(color, capPreset), [color, capPreset]);
 
   // Sit the cap on the clip plane, centered on the model's cross-section.
   useEffect(() => {
     const cap = capRef.current;
     if (!cap) return;
-    const center = getWorldBox(model).getCenter(new THREE.Vector3());
     const dist = plane.distanceToPoint(center);
     cap.position.copy(center).addScaledVector(plane.normal, -dist);
     cap.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), plane.normal);
     invalidate();
-  }, [model, plane, section, invalidate]);
+  }, [plane, center, entry, invalidate]);
 
   useEffect(
     () => () => {
@@ -131,9 +135,42 @@ export function SectionCaps({
         ref={capRef}
         geometry={capGeometry}
         material={capMaterial}
-        renderOrder={1.1}
+        renderOrder={renderOrder + 1}
         onAfterRender={(renderer) => renderer.clearStencil()}
       />
+    </>
+  );
+}
+
+export function SectionCaps({
+  model, entries, plane, section,
+}: {
+  model: LoadedModel;
+  entries: RenderEntry[];
+  plane: THREE.Plane;
+  section: SectionState;
+}) {
+  const { capSize, center } = useMemo(() => {
+    const box = getWorldBox(model);
+    return {
+      capSize: box.getSize(new THREE.Vector3()).length() * 1.25 || 1,
+      center: box.getCenter(new THREE.Vector3()),
+    };
+  }, [model]);
+
+  return (
+    <>
+      {entries.map((entry, index) => (
+        <PartCap
+          key={`${entry.mesh.id}:${section.axis}`}
+          entry={entry}
+          plane={plane}
+          upAxis={model.upAxis}
+          capSize={capSize}
+          center={center}
+          renderOrder={2 + index * 2}
+        />
+      ))}
     </>
   );
 }

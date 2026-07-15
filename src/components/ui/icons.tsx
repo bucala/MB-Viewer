@@ -8,7 +8,7 @@ function Svg({ children, ...props }: IconProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth={1.7}
+      strokeWidth={2}
       strokeLinecap="round"
       strokeLinejoin="round"
       width="1em"
@@ -23,20 +23,20 @@ function Svg({ children, ...props }: IconProps) {
 
 export const FolderOpenIcon = (p: IconProps) => (
   <Svg {...p}>
-    <path d="M4 19h13.4a2 2 0 0 0 1.94-1.5l1.4-5.5A1 1 0 0 0 19.77 11H7.2a2 2 0 0 0-1.94 1.5L4 17.5V6a2 2 0 0 1 2-2h3.6l2 2h6.4a2 2 0 0 1 2 2v1" />
+    <path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2" />
   </Svg>
 );
 
 export const CubeIcon = (p: IconProps) => (
   <Svg {...p}>
-    <path d="M21 8.2 12 3.5 3 8.2v7.6l9 4.7 9-4.7Z" />
-    <path d="M3 8.2l9 4.7 9-4.7M12 12.9v7.6" />
+    <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" />
+    <path d="m3.3 7 8.7 5 8.7-5M12 22V12" />
   </Svg>
 );
 
 export const CursorIcon = (p: IconProps) => (
   <Svg {...p}>
-    <path d="M5 4l6.5 15 2.2-6.3L20 10.5Z" />
+    <path d="m3 3 7.07 16.97 2.51-7.39 7.39-2.51Z" />
   </Svg>
 );
 
@@ -85,47 +85,49 @@ export const GridIcon = (p: IconProps) => (
 
 export const PanelLeftIcon = (p: IconProps) => (
   <Svg {...p}>
-    <rect x="3" y="4" width="18" height="16" rx="2" />
-    <path d="M9.5 4v16" />
+    <rect x="3" y="3" width="18" height="18" rx="2" />
+    <path d="M9 3v18" />
   </Svg>
 );
 
 export const EyeIcon = (p: IconProps) => (
   <Svg {...p}>
-    <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" />
-    <circle cx="12" cy="12" r="2.8" />
+    <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
+    <circle cx="12" cy="12" r="3" />
   </Svg>
 );
 
 export const EyeOffIcon = (p: IconProps) => (
   <Svg {...p}>
-    <path d="M4 4l16 16" />
-    <path d="M9.9 5.9A9.4 9.4 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a17.6 17.6 0 0 1-2.8 3.5M6.2 6.7A16.9 16.9 0 0 0 2.5 12S6 18.5 12 18.5a8.9 8.9 0 0 0 3.5-.7" />
+    <path d="M9.88 9.88a3 3 0 1 0 4.24 4.24" />
+    <path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68" />
+    <path d="M6.61 6.61A13.53 13.53 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61" />
+    <path d="m2 2 20 20" />
   </Svg>
 );
 
 export const ChevronRightIcon = (p: IconProps) => (
   <Svg {...p}>
-    <path d="M9 6l6 6-6 6" />
+    <path d="m9 18 6-6-6-6" />
   </Svg>
 );
 
 export const SearchIcon = (p: IconProps) => (
   <Svg {...p}>
-    <circle cx="11" cy="11" r="7" />
-    <path d="M20.5 20.5 16 16" />
+    <circle cx="11" cy="11" r="8" />
+    <path d="m21 21-4.3-4.3" />
   </Svg>
 );
 
 export const XIcon = (p: IconProps) => (
   <Svg {...p}>
-    <path d="M6 6l12 12M18 6 6 18" />
+    <path d="M18 6 6 18M6 6l12 12" />
   </Svg>
 );
 
 export const MenuIcon = (p: IconProps) => (
   <Svg {...p}>
-    <path d="M4 7h16M4 12h16M4 17h16" />
+    <path d="M4 6h16M4 12h16M4 18h16" />
   </Svg>
 );
 
@@ -164,6 +166,7 @@ export const SectionIcon = (p: IconProps) => (
 
 export const TrashIcon = (p: IconProps) => (
   <Svg {...p}>
-    <path d="M4 7h16M9.5 7V5.5A1.5 1.5 0 0 1 11 4h2a1.5 1.5 0 0 1 1.5 1.5V7M6.5 7l.9 12a2 2 0 0 0 2 1.9h5.2a2 2 0 0 0 2-1.9l.9-12" />
+    <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+    <path d="M10 11v6M14 11v6" />
   </Svg>
 );

@@ -162,7 +162,7 @@ export default function App() {
       <StatusBar />
 
       {dragging && (
-        <div className="pointer-events-none absolute inset-0 z-50 grid place-items-center bg-blue-500/10 backdrop-blur-[2px]">
+        <div className="pointer-events-none absolute inset-0 z-50 grid place-items-center bg-accent-soft/60 backdrop-blur-[2px]">
           <div className="rounded-2xl border-2 border-dashed border-accent bg-panel/90 px-10 py-6 text-[14px] font-medium text-accent shadow-xl">
             {t('drop.hint')}
           </div>

@@ -5,7 +5,7 @@ import { useViewer } from '@/store/viewerStore';
 import { useT } from '@/i18n';
 import type { Measurement, Vec3 } from '@/core/types';
 
-const ACCENT = '#2563eb';
+const ACCENT = '#d97757';
 
 const v = (p: Vec3) => new THREE.Vector3(p[0], p[1], p[2]);
 const mid = (a: Vec3, b: Vec3): Vec3 => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2];
