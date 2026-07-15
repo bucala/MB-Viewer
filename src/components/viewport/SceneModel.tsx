@@ -1,12 +1,13 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { useThree, type ThreeEvent } from '@react-three/fiber';
 import { useViewer } from '@/store/viewerStore';
 import { useSettings } from '@/store/settingsStore';
 import { collectRenderEntries, sectionPlane } from '@/core/scene';
-import { resolveMaterial } from '@/core/materials/presets';
+import { DEFAULT_CAD_COLOR, darkenHex, resolveMaterial } from '@/core/materials/presets';
 import { classifyPickAt } from '@/core/measure/surface';
-import type { RenderEntry, Vec3 } from '@/core/types';
+import { SectionCaps } from '@/components/viewport/SectionCaps';
+import type { MaterialPresetId, RenderEntry, Vec3 } from '@/core/types';
 
 /** Screen-space radius within which a click snaps to the nearest vertex. */
 const SNAP_RADIUS_PX = 14;
@@ -68,22 +69,41 @@ export function SceneModel() {
     [model, hidden, translucent, overrides, globalMaterial, selectedId],
   );
 
-  const clippingPlanes = useMemo(
-    () => (model ? sectionPlane(model, section) : null),
-    [model, section],
-  );
+  // One stable Plane instance (and array) so slider drags only mutate its
+  // coefficients instead of swapping the material's clippingPlanes each frame,
+  // which would otherwise trigger a shader recompile per frame.
+  const planeRef = useRef(new THREE.Plane());
+  const clipArrayRef = useRef<THREE.Plane[]>([planeRef.current]);
 
-  // Attach the section plane to just the model's materials (local clipping),
-  // so the grid, gizmos and measurements stay whole.
+  const sectionActive = useMemo(() => {
+    if (!model) return false;
+    const plane = sectionPlane(model, section);
+    if (!plane) return false;
+    planeRef.current.copy(plane);
+    return true;
+  }, [model, section]);
+
+  // Attach the (stable) section plane to just the model's materials (local
+  // clipping), so the grid, gizmos and measurements stay whole. Only flag a
+  // recompile when clipping toggles on/off, not on every plane move.
+  const prevActive = useRef(false);
   useEffect(() => {
-    const planes = clippingPlanes ? [clippingPlanes] : null;
+    const planes = sectionActive ? clipArrayRef.current : null;
     for (const entry of entries) {
       const material = resolveMaterial(entry, transparency);
       material.clippingPlanes = planes;
-      material.needsUpdate = true;
+      if (sectionActive !== prevActive.current) material.needsUpdate = true;
     }
+    prevActive.current = sectionActive;
     invalidate();
-  }, [entries, clippingPlanes, transparency, invalidate]);
+  }, [entries, sectionActive, transparency, invalidate]);
+
+  const capColor = useMemo(
+    () => darkenHex(globalMaterial.color ?? DEFAULT_CAD_COLOR),
+    [globalMaterial.color],
+  );
+  const capPreset: MaterialPresetId =
+    globalMaterial.preset === 'glass' ? 'matte' : globalMaterial.preset;
 
   const modelDiagonal = useMemo(
     () => (model ? model.boundingBox.getSize(new THREE.Vector3()).length() : 1),
@@ -115,17 +135,31 @@ export function SceneModel() {
   };
 
   return (
-    // CAD files are conventionally Z-up; rotate the whole model to Y-up for
-    // display. Rigid rotation, so world-space measurements stay valid.
-    <group rotation={model.upAxis === 'z' ? [-Math.PI / 2, 0, 0] : [0, 0, 0]}>
-      {entries.map((entry) => (
-        <mesh
-          key={`${entry.mesh.id}`}
-          geometry={entry.mesh.geometry}
-          material={resolveMaterial(entry, transparency)}
-          onClick={handleClick(entry)}
+    <>
+      {/* CAD files are conventionally Z-up; rotate the whole model to Y-up for
+          display. Rigid rotation, so world-space measurements stay valid. */}
+      <group rotation={model.upAxis === 'z' ? [-Math.PI / 2, 0, 0] : [0, 0, 0]}>
+        {entries.map((entry) => (
+          <mesh
+            key={`${entry.mesh.id}`}
+            geometry={entry.mesh.geometry}
+            material={resolveMaterial(entry, transparency)}
+            onClick={handleClick(entry)}
+          />
+        ))}
+      </group>
+      {/* Section caps live in world space (they build their own display
+          rotation internally), so they are a sibling of the model group. */}
+      {sectionActive && (
+        <SectionCaps
+          model={model}
+          entries={entries}
+          plane={planeRef.current}
+          section={section}
+          capColor={capColor}
+          capPreset={capPreset}
         />
-      ))}
-    </group>
+      )}
+    </>
   );
 }

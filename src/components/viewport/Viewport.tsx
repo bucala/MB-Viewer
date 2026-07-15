@@ -62,7 +62,7 @@ export function Viewport() {
     <Canvas
       key={antialias ? 'aa' : 'noaa'}
       dpr={dpr}
-      gl={{ antialias }}
+      gl={{ antialias, stencil: true }}
       className="touch-none"
       // Local clipping: section planes apply only to materials that opt in
       // (the model), never to the grid, gizmos or measurement overlays.

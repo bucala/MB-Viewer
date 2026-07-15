@@ -10,8 +10,43 @@ export const SWATCH_COLORS = [
 ];
 
 /** Neutral fallback when the CAD file carries no color. */
-const DEFAULT_CAD_COLOR = '#aab4bf';
+export const DEFAULT_CAD_COLOR = '#aab4bf';
 const SELECTION_TINT = '#3b82f6';
+
+/** How much darker interior (back-facing) surfaces and section caps are. */
+export const INTERIOR_DARKEN = 0.3;
+
+/** Roughness/metalness per preset — reused to build matching section caps. */
+export const PRESET_SURFACE: Record<MaterialPresetId, { roughness: number; metalness: number }> = {
+  original: { roughness: 0.55, metalness: 0.25 },
+  matte: { roughness: 0.92, metalness: 0 },
+  shiny: { roughness: 0.16, metalness: 0 },
+  metal: { roughness: 0.32, metalness: 1 },
+  glass: { roughness: 0.2, metalness: 0 },
+};
+
+/** Multiply an sRGB hex color toward black by `factor` (0–1). */
+export function darkenHex(hex: string, factor = INTERIOR_DARKEN): string {
+  const c = new THREE.Color(hex).multiplyScalar(1 - factor);
+  return `#${c.getHexString()}`;
+}
+
+/**
+ * Render both sides and shade back faces darker, so a section cut reveals the
+ * interior in the same look as the outside, just {INTERIOR_DARKEN} darker.
+ */
+function applyInteriorShading(material: THREE.Material): void {
+  material.side = THREE.DoubleSide;
+  const previous = material.onBeforeCompile.bind(material);
+  material.onBeforeCompile = (shader, renderer) => {
+    previous(shader, renderer);
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <color_fragment>',
+      `#include <color_fragment>\n  if (!gl_FrontFacing) diffuseColor.rgb *= ${(1 - INTERIOR_DARKEN).toFixed(3)};`,
+    );
+  };
+  material.customProgramCacheKey = () => 'mbv-interior';
+}
 
 function createPresetMaterial(preset: MaterialPresetId, color: string): THREE.MeshPhysicalMaterial {
   const base = { color: new THREE.Color(color) };
@@ -77,6 +112,7 @@ export function resolveMaterial(entry: RenderEntry, translucentOpacity = 0.35): 
   let material = cache.get(key);
   if (!material) {
     material = createPresetMaterial(assignment.preset, color);
+    if (assignment.preset !== 'glass') applyInteriorShading(material);
     if (selected) applySelectionTint(material);
     if (translucent) applyTranslucency(material, translucentOpacity);
     cache.set(key, material);
