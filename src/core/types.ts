@@ -20,6 +20,8 @@ export interface SectionState {
   axis: SectionAxis;
   position: number;
   flip: boolean;
+  /** Fill the cut face with a solid, hatched cap. When false, only clip. */
+  fill: boolean;
 }
 
 export interface MaterialAssignment {

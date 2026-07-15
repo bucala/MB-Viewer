@@ -115,7 +115,7 @@ export const useViewer = create<ViewerState>()((set, get) => ({
   measurements: [],
   globalMaterial: { preset: 'original' },
   overrides: {},
-  section: { axis: 'none', position: 0.5, flip: false },
+  section: { axis: 'none', position: 0.5, flip: false, fill: true },
   gridVisible: true,
   sidebarOpen: true,
   fitSignal: 0,
@@ -142,7 +142,7 @@ export const useViewer = create<ViewerState>()((set, get) => ({
       measurements: [],
       globalMaterial: { preset: 'original' },
       overrides: {},
-      section: { axis: 'none', position: 0.5, flip: false },
+      section: { axis: 'none', position: 0.5, flip: false, fill: true },
       notice: null,
       fitSignal: get().fitSignal + 1,
     });

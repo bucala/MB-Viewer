@@ -143,7 +143,7 @@ export function SceneModel() {
       </group>
       {/* Section caps live in world space (they build their own display
           rotation internally), so they are a sibling of the model group. */}
-      {sectionActive && (
+      {sectionActive && section.fill && (
         <SectionCaps
           model={model}
           entries={entries}

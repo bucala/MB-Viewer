@@ -36,6 +36,7 @@ const en = {
   'section.z': 'Z-Plane',
   'section.position': 'Plane position',
   'section.flip': 'Flip side',
+  'section.fill': 'Fill cut face',
 
   'mat.appliesTo': 'Applies to',
   'mat.entireModel': 'the entire model',
@@ -162,6 +163,7 @@ const sk: Record<TranslationKey, string> = {
   'section.z': 'Rovina Z',
   'section.position': 'Poloha roviny',
   'section.flip': 'Otočiť stranu',
+  'section.fill': 'Vyplniť rez',
 
   'mat.appliesTo': 'Použije sa na',
   'mat.entireModel': 'celý model',

@@ -197,6 +197,14 @@ function SectionMenu() {
             >
               {t('section.flip')}
             </button>
+            <label className="mt-2 flex cursor-pointer items-center gap-2 px-0.5 text-[12px] text-ink-soft">
+              <input
+                type="checkbox"
+                checked={section.fill}
+                onChange={(event) => setSection({ fill: event.target.checked })}
+              />
+              {t('section.fill')}
+            </label>
           </div>
         </div>
       )}
