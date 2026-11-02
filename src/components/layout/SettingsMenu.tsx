@@ -5,7 +5,7 @@ import {
   type Lang, type ProjectionMode, type RenderQuality, type SettingsValues, type ThemeId,
 } from '@/store/settingsStore';
 import { tr, useT } from '@/i18n';
-import { applyFileAssociations } from '@/core/desktop';
+import { applyFileAssociations, changedAssociations } from '@/core/desktop';
 import { createSampleModel } from '@/core/sample';
 import { ACCEPTED_EXTENSIONS } from '@/core/loaders/openModelFile';
 import { ToolButton } from '@/components/ui/ToolButton';
@@ -78,12 +78,15 @@ export function SettingsMenu() {
     setDraft((current) => ({ ...current, ...values }));
 
   const apply = () => {
-    const previousProjection = useSettings.getState().projection;
+    const { projection: previousProjection, fileAssociations: previousAssociations } =
+      useSettings.getState();
+    const associationChanges = changedAssociations(previousAssociations, draft.fileAssociations);
     useSettings.getState().apply(draft);
     if (draft.projection !== previousProjection) useViewer.getState().requestFit();
     // On the desktop shell the file associations register right away —
-    // no reinstall needed.
-    void applyFileAssociations(draft.fileAssociations)
+    // no reinstall needed. Only toggled extensions are sent: unregistering
+    // resets the OS default app, so untouched types must be left alone.
+    void applyFileAssociations(associationChanges)
       .then((applied) => {
         if (applied) useViewer.getState().setNotice(tr('set.assocApplied'));
       })
