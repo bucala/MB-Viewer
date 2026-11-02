@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { useThree } from '@react-three/fiber';
 import { useViewer } from '@/store/viewerStore';
@@ -13,7 +13,8 @@ const FIT_DIRECTION = new THREE.Vector3(1, 0.62, 1).normalize();
 
 /**
  * Frames the model whenever one is loaded, a re-fit is requested or the
- * camera (projection mode) changes, and adapts clipping planes/zoom to the
+ * camera (projection mode) changes — never on a mere canvas resize — and
+ * adapts clipping planes/zoom to the
  * model's scale (CAD files range from millimeter screws to buildings).
  */
 export function CameraRig() {
@@ -21,10 +22,25 @@ export function CameraRig() {
   const fitSignal = useViewer((s) => s.fitSignal);
   const camera = useThree((s) => s.camera);
   const size = useThree((s) => s.size);
+  const get = useThree((s) => s.get);
   const controls = useThree((s) => s.controls) as unknown as ControlsLike | null;
+
+  // Resizing the canvas (window, tree panel, phone rotation) must keep the
+  // user's view. A perspective camera keeps the model's on-screen height by
+  // itself; an orthographic one needs its zoom scaled with the canvas height.
+  const previousHeight = useRef(size.height);
+  useEffect(() => {
+    const before = previousHeight.current;
+    previousHeight.current = size.height;
+    if (!(camera as THREE.OrthographicCamera).isOrthographicCamera || before <= 0) return;
+    const ortho = camera as THREE.OrthographicCamera;
+    ortho.zoom *= size.height / before;
+    ortho.updateProjectionMatrix();
+  }, [size.height, camera]);
 
   useEffect(() => {
     if (!model) return;
+    const { size } = get();
 
     const box = getWorldBox(model);
     const center = box.getCenter(new THREE.Vector3());
@@ -55,7 +71,7 @@ export function CameraRig() {
     } else {
       camera.lookAt(center);
     }
-  }, [model, fitSignal, camera, size, controls]);
+  }, [model, fitSignal, camera, get, controls]);
 
   return null;
 }
