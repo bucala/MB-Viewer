@@ -18,6 +18,8 @@
 
 /* global importScripts, occtimportjs */
 
+importScripts('./step-faceted.js');
+
 let occtPromise = null;
 
 function initOcct() {
@@ -32,11 +34,28 @@ function initOcct() {
   return occtPromise;
 }
 
+function postResult(id, meshes, root) {
+  const transfer = [];
+  for (const mesh of meshes) {
+    transfer.push(mesh.positions.buffer);
+    if (mesh.normals) transfer.push(mesh.normals.buffer);
+    if (mesh.indices) transfer.push(mesh.indices.buffer);
+  }
+  self.postMessage({ id, ok: true, meshes, root }, transfer);
+}
+
 self.onmessage = async (event) => {
   const { id, format, buffer } = event.data;
   try {
-    const occt = await initOcct();
     const bytes = new Uint8Array(buffer);
+    if (format === 'step') {
+      const faceted = self.readFacetedStep(bytes);
+      if (faceted) {
+        postResult(id, faceted.meshes, faceted.root);
+        return;
+      }
+    }
+    const occt = await initOcct();
 
     let result;
     if (format === 'step') {
@@ -56,7 +75,6 @@ self.onmessage = async (event) => {
     // Re-pack tessellation into typed arrays and hand the underlying buffers
     // to postMessage as transferables — zero-copy back to the main thread.
     const meshes = [];
-    const transfer = [];
     for (const mesh of result.meshes) {
       const positions = new Float32Array(mesh.attributes.position.array);
       const normals = mesh.attributes.normal ? new Float32Array(mesh.attributes.normal.array) : null;
@@ -68,12 +86,13 @@ self.onmessage = async (event) => {
         normals,
         indices,
       });
-      transfer.push(positions.buffer);
-      if (normals) transfer.push(normals.buffer);
-      if (indices) transfer.push(indices.buffer);
     }
 
-    self.postMessage({ id, ok: true, meshes, root: result.root }, transfer);
+    if (!meshes.some((mesh) => mesh.positions.length >= 9 &&
+        (!mesh.indices || mesh.indices.length >= 3))) {
+      throw new Error('The CAD file contains no triangle geometry.');
+    }
+    postResult(id, meshes, result.root);
   } catch (error) {
     self.postMessage({
       id,

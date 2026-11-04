@@ -29,12 +29,12 @@ Opens **STEP / IGES / BREP** (via OpenCASCADE compiled to WebAssembly), plus **S
 
 ## How heavy STEP/IGES files are handled (WASM strategy)
 
-STEP and IGES are **B-rep** formats — they describe exact analytic surfaces, not triangles. Turning them into something a GPU can draw requires a real CAD kernel. MB Viewer uses [OpenCASCADE](https://dev.opencascade.org/) compiled to WebAssembly (`occt-import-js`), which parses the file **and** tessellates it into triangle meshes, preserving the assembly hierarchy and colors.
+STEP and IGES usually describe exact **B-rep** surfaces rather than GPU-ready triangles, although STEP can also contain already-faceted solids. Analytic models need a real CAD kernel: MB Viewer uses [OpenCASCADE](https://dev.opencascade.org/) compiled to WebAssembly (`occt-import-js`), which parses the file **and** tessellates it into triangle meshes, preserving the assembly hierarchy and colors.
 
 The pipeline is designed around three constraints — parse times of seconds-to-minutes, a 7.6 MB WASM binary, and identical behavior across web/desktop/mobile shells:
 
-1. **Everything runs in a Web Worker** (`public/occt-worker.js`). The UI thread never blocks: the file bytes are `postMessage`-**transferred** (zero-copy) into the worker, OpenCASCADE parses + tessellates there, and the resulting positions/normals/indices are repacked into typed arrays and **transferred** back. Even a minutes-long parse leaves orbiting, tree interaction and the progress overlay fully responsive.
-2. **The WASM runtime stays out of the bundler.** The worker is a *classic* worker that `importScripts()`s the Emscripten UMD build verbatim; `scripts/copy-occt.mjs` copies `occt-import-js.{js,wasm}` into `public/vendor/occt/` on `npm install`. Vite never sees the Emscripten bundle, so dev, production, Tauri and Capacitor builds all load it the same way — and the 7.6 MB WASM is fetched **lazily**, only when the user first opens a STEP/IGES/BREP file. App startup pays nothing.
+1. **CAD import runs in a Web Worker** (`public/occt-worker.js`). The file bytes are `postMessage`-**transferred** (zero-copy) into the worker, and the resulting positions/normals/indices are **transferred** back. Standalone, unstyled, millimeter `FACETED_BREP` models made entirely of triangles are read directly by `public/step-faceted.js`, without rebuilding their already-tessellated faces in a CAD kernel. Unsupported geometry, units, styles and assembly placements fall back to OpenCASCADE; an empty engine result is reported as an error instead of publishing a blank model.
+2. **The WASM runtime stays out of the bundler.** The worker is a *classic* worker that `importScripts()`s the Emscripten UMD build verbatim; `scripts/copy-occt.mjs` copies `occt-import-js.{js,wasm}` into `public/vendor/occt/` on `npm install`. Vite never sees the Emscripten bundle, so dev, production, Tauri and Capacitor builds all load it the same way — and the 7.6 MB WASM is fetched **lazily**, only when an import needs the general CAD kernel. App startup and directly imported faceted models pay nothing.
 3. **Meshes arrive render-ready.** On the main thread the typed arrays are wrapped directly into `THREE.BufferGeometry` (no copying), a BVH is built once per geometry for fast raycasting, and the worker-reported node tree becomes the assembly tree. Mesh-native formats bypass the worker entirely: STL/OBJ/GLB go through the standard three.js loaders.
 
 STL/STEP/IGES geometry is treated as **Z-up** (CAD convention) and displayed under a rigid −90° X rotation to three.js Y-up — rigid, so world-space measurements (distances/angles/diameters, in mm) are unaffected.
@@ -48,6 +48,7 @@ MB-Viewer/
 ├─ capacitor.config.ts            # Android shell config
 ├─ public/
 │  ├─ occt-worker.js              # classic worker: OpenCASCADE WASM host
+│  ├─ step-faceted.js             # conservative triangular FACETED_BREP fast path
 │  └─ vendor/occt/                # WASM runtime (copied on npm install, gitignored)
 ├─ scripts/
 │  ├─ copy-occt.mjs               # node_modules → public/vendor/occt
@@ -89,6 +90,7 @@ MB-Viewer/
 npm install        # also copies the occt WASM runtime into public/
 npm run dev        # web app on http://localhost:5173
 npm run build      # typecheck + production bundle in dist/
+npm test           # generated faceted STEP fixtures + worker regressions
 ```
 
 No model at hand? Click **Sample** in the toolbar.

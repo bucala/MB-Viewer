@@ -52,6 +52,7 @@ export async function openModelBuffer(buffer: ArrayBuffer, fileName: string): Pr
 function localizeError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   if (message.startsWith('OpenCASCADE could not parse')) return tr('err.occt');
+  if (message === 'The CAD file contains no triangle geometry.') return tr('err.cadEmpty');
   if (message.includes('worker crashed')) return tr('err.worker');
   return message;
 }
