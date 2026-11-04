@@ -39,20 +39,29 @@ export function initDesktopIntegration(): void {
 }
 
 /**
- * Register/unregister the OS file associations for the current user.
- * Resolves to true when the desktop shell actually applied them, false when
- * running in a browser/Android (nothing to do there).
+ * Register/unregister OS file associations for the current user — only the
+ * extensions passed in `changes`. Unregistering touches the user's default-app
+ * choices, so callers must pass just what the user actually toggled.
+ * Resolves to true when the desktop shell applied them, false in a
+ * browser/Android or when there was nothing to apply.
  */
-export async function applyFileAssociations(
-  fileAssociations: Record<string, boolean>,
-): Promise<boolean> {
+export async function applyFileAssociations(changes: Record<string, boolean>): Promise<boolean> {
   if (!isDesktopShell()) return false;
-  // Always send every supported extension with its current on/off state, so a
-  // freshly opened Settings panel applies immediately and unchecked types get
-  // unregistered rather than silently skipped.
-  const choices = ACCEPTED_EXTENSIONS.map((ext) => ({
-    ext,
-    enabled: Boolean(fileAssociations[ext]),
-  }));
+  const choices = Object.entries(changes)
+    .filter(([ext]) => ACCEPTED_EXTENSIONS.includes(ext))
+    .map(([ext, enabled]) => ({ ext, enabled }));
+  if (choices.length === 0) return false;
   return invoke<boolean>('apply_file_associations', { choices });
+}
+
+/** Extensions whose association choice differs between two settings states. */
+export function changedAssociations(
+  previous: Record<string, boolean>,
+  next: Record<string, boolean>,
+): Record<string, boolean> {
+  const changes: Record<string, boolean> = {};
+  for (const ext of ACCEPTED_EXTENSIONS) {
+    if (Boolean(previous[ext]) !== Boolean(next[ext])) changes[ext] = Boolean(next[ext]);
+  }
+  return changes;
 }

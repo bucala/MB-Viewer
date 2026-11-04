@@ -206,9 +206,27 @@ mod windows_impl {
             }
         }
         let _ = classes.delete_subkey_all(&progid);
-        // Drop any UserChoice pointing at us so Windows re-resolves the default.
-        clear_user_choice(ext);
+        // Drop the UserChoice only when it points at us, so Windows re-resolves
+        // the default; a default app the user picked elsewhere stays intact.
+        clear_user_choice_if(ext, &progid);
         Ok(())
+    }
+
+    /// Like `clear_user_choice`, but only when that UserChoice selects `progid`.
+    fn clear_user_choice_if(ext: &str, progid: &str) {
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let path = format!(
+            "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\.{ext}"
+        );
+        if let Ok(file_ext) = hkcu.open_subkey_with_flags(&path, KEY_ALL_ACCESS) {
+            let ours = file_ext
+                .open_subkey("UserChoice")
+                .and_then(|choice| choice.get_value::<String, _>("ProgId"))
+                .is_ok_and(|id| id.eq_ignore_ascii_case(progid));
+            if ours {
+                let _ = file_ext.delete_subkey_all("UserChoice");
+            }
+        }
     }
 
     /// Find the thumbnail-provider CLSID that currently serves `ext`, looking

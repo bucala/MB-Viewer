@@ -5,7 +5,7 @@ import { useViewer } from '@/store/viewerStore';
 import { useSettings } from '@/store/settingsStore';
 import { collectRenderEntries, sectionPlane } from '@/core/scene';
 import { resolveMaterial } from '@/core/materials/presets';
-import { classifyPickAt } from '@/core/measure/surface';
+import { classifyPickAt, type SmartPick } from '@/core/measure/surface';
 import { SectionCaps } from '@/components/viewport/SectionCaps';
 import type { RenderEntry, Vec3 } from '@/core/types';
 
@@ -48,6 +48,56 @@ function resolveSnappedPoint(
   return (best ?? hit).toArray() as Vec3;
 }
 
+/** A hit moved onto the section cap (the click landed on the cut face). */
+type CapIntersection = THREE.Intersection & { sectionCap?: true };
+
+/**
+ * three.js raycasting ignores clipping planes, so without this, clicks in a
+ * section view select and measure the cut-away (invisible) half. Hits on the
+ * clipped side are dropped; when the first remaining hit is the inside of
+ * the same solid seen through the cut, the click is on the section cap and
+ * the point is moved onto the cut plane. Filtering must happen per mesh,
+ * because R3F keeps only the first intersection of each object.
+ */
+function createClippedRaycast(plane: THREE.Plane, active: { current: boolean }) {
+  const faceNormal = new THREE.Vector3();
+  return function clippedRaycast(
+    this: THREE.Mesh,
+    raycaster: THREE.Raycaster,
+    intersects: THREE.Intersection[],
+  ) {
+    const start = intersects.length;
+    THREE.Mesh.prototype.raycast.call(this, raycaster, intersects);
+    if (!active.current || intersects.length === start) return;
+
+    const hits = intersects.splice(start).sort((a, b) => a.distance - b.distance);
+    const capDistance = raycaster.ray.distanceToPlane(plane);
+    let clippedBeforeCap = false;
+    for (const hit of hits) {
+      if (plane.distanceToPoint(hit.point) < 0) {
+        if (capDistance !== null && hit.distance < capDistance) clippedBeforeCap = true;
+        continue;
+      }
+      if (clippedBeforeCap && capDistance !== null && hit.face) {
+        faceNormal.copy(hit.face.normal).transformDirection(this.matrixWorld);
+        if (faceNormal.dot(raycaster.ray.direction) > 0) {
+          const capHit: CapIntersection = {
+            ...hit,
+            point: raycaster.ray.at(capDistance, new THREE.Vector3()),
+            distance: capDistance,
+            sectionCap: true,
+          };
+          intersects.push(capHit);
+          clippedBeforeCap = false;
+          continue;
+        }
+      }
+      clippedBeforeCap = false;
+      intersects.push(hit);
+    }
+  };
+}
+
 export function SceneModel() {
   const model = useViewer((s) => s.model);
   const hidden = useViewer((s) => s.hidden);
@@ -83,6 +133,13 @@ export function SceneModel() {
     return true;
   }, [model, section]);
 
+  const sectionActiveRef = useRef(sectionActive);
+  sectionActiveRef.current = sectionActive;
+  const clippedRaycast = useMemo(
+    () => createClippedRaycast(planeRef.current, sectionActiveRef),
+    [],
+  );
+
   // Attach the (stable) section plane to just the model's materials (local
   // clipping), so the grid, gizmos and measurements stay whole. Only flag a
   // recompile when clipping toggles on/off, not on every plane move.
@@ -110,20 +167,26 @@ export function SceneModel() {
     if (event.delta > 5) return;
     event.stopPropagation();
     const store = useViewer.getState();
+    // On the section cap there is no tessellated face under the cursor —
+    // the hit is the cut plane itself.
+    const onCap = (event as ThreeEvent<MouseEvent> & CapIntersection).sectionCap === true;
+    const point = onCap ? (event.point.toArray() as Vec3) : resolveSnappedPoint(event, camera, size);
     if (store.tool === 'select') {
       store.setSelected(store.selectedId === entry.nodeId ? null : entry.nodeId);
     } else if (store.tool === 'measure-point') {
-      store.addMeasurePoint(resolveSnappedPoint(event, camera, size));
+      store.addMeasurePoint(point);
     } else {
       // Surface-based tools: classify the face/edge under the cursor; the
       // snapped point serves as the fallback when nothing is recognized.
-      const pick = classifyPickAt(
-        event.object as THREE.Mesh,
-        event.faceIndex ?? null,
-        event.point.clone(),
-        modelDiagonal,
-      );
-      store.handleSmartPick(pick, resolveSnappedPoint(event, camera, size));
+      const pick: SmartPick = onCap
+        ? { kind: 'plane', point, normal: planeRef.current.normal.toArray() as Vec3 }
+        : classifyPickAt(
+            event.object as THREE.Mesh,
+            event.faceIndex ?? null,
+            event.point.clone(),
+            modelDiagonal,
+          );
+      store.handleSmartPick(pick, point);
     }
   };
 
@@ -137,6 +200,7 @@ export function SceneModel() {
             key={`${entry.mesh.id}`}
             geometry={entry.mesh.geometry}
             material={resolveMaterial(entry, transparency)}
+            raycast={clippedRaycast}
             onClick={handleClick(entry)}
           />
         ))}

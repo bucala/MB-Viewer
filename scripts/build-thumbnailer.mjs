@@ -3,18 +3,20 @@
 // an app resource. No-op on non-Windows hosts (the DLL is Windows-only).
 import { spawnSync } from 'node:child_process';
 import { cp, mkdir, access } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 
 if (process.platform !== 'win32') {
   console.warn('[thumbnailer] not Windows — skipping thumbnail provider build.');
   process.exit(0);
 }
 
-const manifest = new URL('../thumbnailer/Cargo.toml', import.meta.url);
-const result = spawnSync(
-  'cargo',
-  ['build', '--release', '--manifest-path', manifest.pathname.replace(/^\//, '')],
-  { stdio: 'inherit', shell: true },
-);
+// fileURLToPath, not URL.pathname: the latter percent-encodes spaces and
+// diacritics (C:/Users/Marcel%20B/...), which cargo cannot resolve. No shell,
+// so the path reaches cargo as one argument without quoting.
+const manifest = fileURLToPath(new URL('../thumbnailer/Cargo.toml', import.meta.url));
+const result = spawnSync('cargo', ['build', '--release', '--manifest-path', manifest], {
+  stdio: 'inherit',
+});
 if (result.status !== 0) {
   console.error('[thumbnailer] cargo build failed.');
   process.exit(result.status ?? 1);
@@ -27,7 +29,7 @@ const dst = new URL('mb_viewer_thumbs.dll', dstDir);
 try {
   await access(dll);
 } catch {
-  console.error('[thumbnailer] built DLL not found:', dll.pathname);
+  console.error('[thumbnailer] built DLL not found:', fileURLToPath(dll));
   process.exit(1);
 }
 
