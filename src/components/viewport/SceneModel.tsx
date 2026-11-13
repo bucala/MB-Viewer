@@ -7,6 +7,7 @@ import { collectRenderEntries, sectionPlane } from '@/core/scene';
 import { resolveMaterial } from '@/core/materials/presets';
 import { classifyPickAt, type SmartPick } from '@/core/measure/surface';
 import { SectionCaps } from '@/components/viewport/SectionCaps';
+import { drawsSeparately, useBatchedParts } from '@/components/viewport/useBatchedParts';
 import type { RenderEntry, Vec3 } from '@/core/types';
 
 /** Screen-space radius within which a click snaps to the nearest vertex. */
@@ -119,6 +120,8 @@ export function SceneModel() {
     [model, hidden, translucent, overrides, globalMaterial, selectedId],
   );
 
+  const { batches, batchedIds } = useBatchedParts(model, entries, overrides, globalMaterial);
+
   // One stable Plane instance (and array) so slider drags only mutate its
   // coefficients instead of swapping the material's clippingPlanes each frame,
   // which would otherwise trigger a shader recompile per frame.
@@ -196,11 +199,18 @@ export function SceneModel() {
       {/* CAD files are conventionally Z-up; rotate the whole model to Y-up for
           display. Rigid rotation, so world-space measurements stay valid. */}
       <group rotation={model.upAxis === 'z' ? [-Math.PI / 2, 0, 0] : [0, 0, 0]}>
+        {batches.map((batch) => (
+          <primitive key={batch.uuid} object={batch} />
+        ))}
+        {/* Per-part meshes always handle picking; a batched part is drawn by
+            its batch and its own mesh stays invisible (raycasts ignore
+            visibility). */}
         {entries.map((entry) => (
           <mesh
             key={`${entry.mesh.id}`}
             geometry={entry.mesh.geometry}
             material={resolveMaterial(entry, transparency)}
+            visible={!batchedIds.has(entry.mesh.id) || drawsSeparately(entry)}
             raycast={clippedRaycast}
             onClick={handleClick(entry)}
           />

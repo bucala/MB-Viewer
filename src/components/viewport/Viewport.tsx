@@ -69,7 +69,12 @@ export function Viewport() {
       className="touch-none"
       // Local clipping: section planes apply only to materials that opt in
       // (the model), never to the grid, gizmos or measurement overlays.
-      onCreated={({ gl }) => { gl.localClippingEnabled = true; }}
+      onCreated={({ gl, invalidate }) => {
+        gl.localClippingEnabled = true;
+        // Renderer stats (draw calls) for e2e tests — dev/e2e builds only.
+        const debug = (globalThis as { __mbViewer?: Record<string, unknown> }).__mbViewer;
+        if (debug) Object.assign(debug, { renderer: gl, invalidate });
+      }}
       onPointerMissed={() => {
         const store = useViewer.getState();
         if (store.tool === 'select') store.setSelected(null);
