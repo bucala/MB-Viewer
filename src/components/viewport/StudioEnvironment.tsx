@@ -11,17 +11,19 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 export function StudioEnvironment() {
   const gl = useThree((s) => s.gl);
   const scene = useThree((s) => s.scene);
+  const invalidate = useThree((s) => s.invalidate);
 
   useEffect(() => {
     const pmrem = new THREE.PMREMGenerator(gl);
     const texture = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
     scene.environment = texture;
+    invalidate();
     return () => {
       scene.environment = null;
       texture.dispose();
       pmrem.dispose();
     };
-  }, [gl, scene]);
+  }, [gl, scene, invalidate]);
 
   return null;
 }

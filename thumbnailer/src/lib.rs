@@ -221,12 +221,16 @@ unsafe extern "system" fn thumb_get_thumbnail(this: *mut c_void, cx: u32, phbmp:
         Some(b) => b,
         None => return E_FAIL,
     };
-    let model = match mesh::parse_auto(&bytes) {
-        Some(m) => m,
-        None => return E_FAIL,
-    };
     let size = cx.clamp(16, 1024);
-    let pixels = render::render(&model, size);
+    // A panic must never cross the COM boundary (it would abort the host
+    // process): any parser/renderer failure just means "no thumbnail".
+    let rendered = std::panic::catch_unwind(|| {
+        mesh::parse_auto(&bytes).map(|model| render::render(&model, size))
+    });
+    let pixels = match rendered {
+        Ok(Some(p)) => p,
+        _ => return E_FAIL,
+    };
     let hbmp = create_dib(size, &pixels);
     if hbmp.is_null() {
         return E_FAIL;

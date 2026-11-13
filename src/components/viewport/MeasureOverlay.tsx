@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import * as THREE from 'three';
 import { Html, Line } from '@react-three/drei';
 import { useViewer } from '@/store/viewerStore';
-import { useT } from '@/i18n';
+import { useMeasurementFormat, useT } from '@/i18n';
 import type { Measurement, Vec3 } from '@/core/types';
 
 const ACCENT = '#d97757';
@@ -73,7 +73,8 @@ function Label({ position, text, onClick }: { position: Vec3; text: string; onCl
 
 function MeasurementGraphics({ measurement, markerRadius }: { measurement: Measurement; markerRadius: number }) {
   const remove = useViewer((s) => s.removeMeasurement);
-  const { points, label, type, circle, id } = measurement;
+  const label = useMeasurementFormat()(measurement);
+  const { points, type, circle, id } = measurement;
 
   if (type === 'distance') {
     return (

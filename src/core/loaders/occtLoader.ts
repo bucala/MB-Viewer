@@ -1,6 +1,9 @@
 import * as THREE from 'three';
 import type { LoadedModel, ModelMesh, ModelNode } from '@/core/types';
 import { finalizeModel } from '@/core/loaders/finalizeModel';
+import { buildBvhsInWorker, geometryFromWorker } from '@/core/loaders/geometryWorker';
+
+import type { TessellationQuality } from '@/store/settingsStore';
 
 export type CadFormat = 'step' | 'iges' | 'brep';
 
@@ -10,6 +13,8 @@ interface WorkerMesh {
   positions: Float32Array;
   normals: Float32Array | null;
   indices: Uint32Array | null;
+  /** first/last triangle index per B-rep face (absent for faceted STEP). */
+  faceRanges?: Uint32Array;
 }
 
 interface WorkerNode {
@@ -23,11 +28,29 @@ interface WorkerResult {
   root: WorkerNode;
 }
 
+/** The WASM heap only grows; an idle worker is dropped to give it back. */
+const IDLE_TERMINATE_MS = 30_000;
+
 let worker: Worker | null = null;
+let idleTimer: ReturnType<typeof setTimeout> | undefined;
 let seq = 0;
 const pending = new Map<number, { resolve: (r: WorkerResult) => void; reject: (e: Error) => void }>();
 
+function terminateWorker(error?: Error): void {
+  clearTimeout(idleTimer);
+  if (error) pending.forEach((request) => request.reject(error));
+  pending.clear();
+  worker?.terminate();
+  worker = null;
+}
+
+function scheduleIdleTermination(): void {
+  clearTimeout(idleTimer);
+  if (pending.size === 0) idleTimer = setTimeout(() => terminateWorker(), IDLE_TERMINATE_MS);
+}
+
 function ensureWorker(): Worker {
+  clearTimeout(idleTimer);
   if (worker) return worker;
   worker = new Worker(`${import.meta.env.BASE_URL}occt-worker.js`);
   worker.onmessage = (event: MessageEvent) => {
@@ -37,13 +60,10 @@ function ensureWorker(): Worker {
     pending.delete(id);
     if (ok) request.resolve({ meshes, root });
     else request.reject(new Error(error));
+    scheduleIdleTermination();
   };
   worker.onerror = (event) => {
-    const err = new Error(event.message || 'The CAD parsing worker crashed.');
-    pending.forEach((request) => request.reject(err));
-    pending.clear();
-    worker?.terminate();
-    worker = null;
+    terminateWorker(new Error(event.message || 'The CAD parsing worker crashed.'));
   };
   return worker;
 }
@@ -51,12 +71,25 @@ function ensureWorker(): Worker {
 /**
  * Parse STEP/IGES/BREP in the occt (OpenCASCADE WASM) worker.
  * The buffer is transferred, not copied — do not reuse it afterwards.
+ * Aborting terminates the worker: OpenCASCADE cannot be interrupted.
  */
-export function parseCadInWorker(buffer: ArrayBuffer, format: CadFormat): Promise<WorkerResult> {
+export function parseCadInWorker(
+  buffer: ArrayBuffer,
+  format: CadFormat,
+  options: { quality?: TessellationQuality; signal?: AbortSignal } = {},
+): Promise<WorkerResult> {
+  const { quality = 'standard', signal } = options;
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason);
+      return;
+    }
     const id = ++seq;
     pending.set(id, { resolve, reject });
-    ensureWorker().postMessage({ id, format, buffer }, [buffer]);
+    signal?.addEventListener('abort', () => {
+      if (pending.has(id)) terminateWorker(signal.reason);
+    }, { once: true });
+    ensureWorker().postMessage({ id, format, buffer, quality }, [buffer]);
   });
 }
 
@@ -64,17 +97,19 @@ function rgbToHex([r, g, b]: [number, number, number]): string {
   return `#${new THREE.Color(r, g, b).getHexString()}`;
 }
 
-/** Turn the worker's transferable payload into geometries + assembly tree. */
-export function buildModelFromCad(fileName: string, data: WorkerResult): LoadedModel {
+/** Turn the worker's payload into geometries (BVHs built off-thread) + assembly tree. */
+export async function buildModelFromCad(
+  fileName: string,
+  data: WorkerResult,
+  signal?: AbortSignal,
+): Promise<LoadedModel> {
+  const built = await buildBvhsInWorker(
+    data.meshes.map((wm) => ({ positions: wm.positions, normals: wm.normals, indices: wm.indices })),
+    signal,
+  );
   const meshes: ModelMesh[] = data.meshes.map((wm, i) => {
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.BufferAttribute(wm.positions, 3));
-    if (wm.normals && wm.normals.length === wm.positions.length) {
-      geometry.setAttribute('normal', new THREE.BufferAttribute(wm.normals, 3));
-    }
-    if (wm.indices) {
-      geometry.setIndex(new THREE.BufferAttribute(wm.indices, 1));
-    }
+    const geometry = geometryFromWorker(built[i]);
+    if (wm.faceRanges && wm.faceRanges.length > 0) geometry.userData.faceRanges = wm.faceRanges;
     return {
       id: i,
       name: wm.name.trim() || `Body ${i + 1}`,

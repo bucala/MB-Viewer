@@ -5,6 +5,7 @@ export type Lang = 'sk' | 'en';
 export type ThemeId = 'white' | 'gray' | 'black';
 export type ProjectionMode = 'perspective' | 'parallel';
 export type RenderQuality = 'low' | 'medium' | 'high';
+export type TessellationQuality = 'coarse' | 'standard' | 'fine';
 
 export interface SettingsValues {
   language: Lang;
@@ -12,6 +13,8 @@ export interface SettingsValues {
   projection: ProjectionMode;
   /** Render resolution tier: device pixel ratio + antialiasing. */
   quality: RenderQuality;
+  /** OpenCASCADE tessellation density for STEP/IGES/BREP (applies on the next open). */
+  tessellation: TessellationQuality;
   /** Opacity used for parts toggled translucent in the tree (0.1–0.9). */
   transparency: number;
   /** Per-extension opt-in for OS file association (applied by the desktop installer). */
@@ -23,6 +26,7 @@ export const DEFAULT_SETTINGS: SettingsValues = {
   theme: 'white',
   projection: 'perspective',
   quality: 'high',
+  tessellation: 'standard',
   transparency: 0.35,
   fileAssociations: {},
 };

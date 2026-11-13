@@ -16,7 +16,15 @@ import type { Vec3 } from '@/core/types';
  */
 export type SmartPick =
   | { kind: 'plane'; point: Vec3; normal: Vec3 }
-  | { kind: 'cylinder'; point: Vec3; center: Vec3; axis: Vec3; radius: number }
+  | {
+      kind: 'cylinder';
+      point: Vec3;
+      center: Vec3;
+      axis: Vec3;
+      radius: number;
+      /** Local fit over a narrow arc — the value is an estimate. */
+      approx?: boolean;
+    }
   | {
       kind: 'cone';
       point: Vec3;
@@ -28,6 +36,7 @@ export type SmartPick =
       halfAngleDeg: number;
       /** Cone radius at the picked point's height. */
       radiusAtPoint: number;
+      approx?: boolean;
     }
   | { kind: 'circle'; point: Vec3; center: Vec3; axis: Vec3; radius: number }
   | { kind: 'line'; point: Vec3; origin: Vec3; dir: Vec3 }
@@ -55,6 +64,8 @@ const CONE_MIN_HALF_DEG = 3;
 const CONE_MAX_HALF_DEG = 80;
 /** Dihedral angle (between facet normals) that marks a feature edge. */
 const FEATURE_EDGE_DOT = Math.cos(THREE.MathUtils.degToRad(30));
+/** Largest angle one segment of a circular edge may subtend (coarse tessellation ≈ 46°). */
+const MAX_ARC_SEGMENT = THREE.MathUtils.degToRad(50);
 /** Minimum angular coverage for a circular-edge fit, radians. */
 const MIN_ARC_SPAN = THREE.MathUtils.degToRad(60);
 const MAX_TRIANGLES = 4000;
@@ -187,6 +198,8 @@ interface AxialFit {
   /** Radius as a linear function of height t along the axis: r = slope·t + offset. */
   slope: number;
   offset: number;
+  /** Angular coverage of the sampled facets around the axis, degrees. */
+  coverageDeg: number;
 }
 
 /**
@@ -328,6 +341,7 @@ function fitAxialSurface(samples: TriSample[]): AxialFit | null {
     if (area > 0.02 * weightSum) populatedBins += 1;
   }
   if (populatedBins < 4) return null;
+  const coverageDeg = populatedBins * 6;
 
   // Radius along the axis: r(t) = slope·t + offset over the sample vertices
   // (they lie exactly on the true surface).
@@ -403,7 +417,7 @@ function fitAxialSurface(samples: TriSample[]): AxialFit | null {
     axisPoint.addScaledVector(e1, u0).addScaledVector(e2, v0);
     return {
       kind: 'cylinder', axis, axisPoint, radius,
-      halfAngle: 0, apex: null, slope: 0, offset: radius,
+      halfAngle: 0, apex: null, slope: 0, offset: radius, coverageDeg,
     };
   }
 
@@ -421,8 +435,47 @@ function fitAxialSurface(samples: TriSample[]): AxialFit | null {
   const apex = axisPoint.clone().addScaledVector(axis, tApex);
   return {
     kind: 'cone', axis, axisPoint, radius: meanR,
-    halfAngle: slopeAngle, apex, slope, offset,
+    halfAngle: slopeAngle, apex, slope, offset, coverageDeg,
   };
+}
+
+/** Facets kept by the cylinder refinement: |n·axis| and radial deviation limits. */
+const INLIER_AXIS_DOT = 0.12;
+const INLIER_RADIAL = 0.03;
+
+/**
+ * Grow a local cylinder fit around the circumference. The first fit only
+ * sees facets within ±25° of the clicked normal (~50° of arc), where a
+ * least-squares circle is poorly conditioned — that is what produced
+ * Ø10 → Ø9.87. Sampling a sphere about one diameter wide and keeping the
+ * facets that lie on the estimated cylinder (normal ⟂ axis, vertices at
+ * radius r) adds the rest of the arc; refitting then pins the radius.
+ */
+function refineCylinder(
+  geometry: THREE.BufferGeometry,
+  fit: AxialFit,
+  center: THREE.Vector3,
+  limit: number,
+): AxialFit {
+  let best = fit;
+  const rel = new THREE.Vector3();
+  const radialDistance = (p: THREE.Vector3, f: AxialFit) => {
+    rel.copy(p).sub(f.axisPoint);
+    const t = rel.dot(f.axis);
+    return rel.addScaledVector(f.axis, -t).length();
+  };
+  for (let iteration = 0; iteration < 3 && best.coverageDeg < 330; iteration++) {
+    const sphere = new THREE.Sphere(center, Math.min(best.radius * 2.2, limit));
+    const inliers = collectTriangles(geometry, sphere).filter((sample) =>
+      Math.abs(sample.normal.dot(best.axis)) < INLIER_AXIS_DOT
+      && [sample.a, sample.b, sample.c].every(
+        (p) => Math.abs(radialDistance(p, best) - best.radius) < INLIER_RADIAL * best.radius,
+      ));
+    const refit = fitAxialSurface(inliers);
+    if (!refit || refit.kind !== 'cylinder' || refit.coverageDeg <= best.coverageDeg) break;
+    best = refit;
+  }
+  return best;
 }
 
 function weightedMeanNormal(samples: TriSample[]): THREE.Vector3 {
@@ -444,28 +497,189 @@ function classifyFace(samples: TriSample[], hitNormal: THREE.Vector3): FaceFit {
     totalArea += sample.area;
     (sample.normal.dot(hitNormal) > NEAR_CLUSTER_DOT ? near : far).push(sample);
   }
-
-  // Click near a rim: the far cluster is the adjoining cylinder/cone wall —
-  // prefer it ("edge of a hole → its diameter").
   const farArea = far.reduce((sum, s) => sum + s.area, 0);
-  if (farArea > 0.18 * totalArea) {
-    const axial = fitAxialSurface(far);
-    if (axial) return axial;
-  }
+  const rimFit = () => (farArea > 0.18 * totalArea ? fitAxialSurface(far) : null);
 
   if (near.length >= 2) {
     const mean = weightedMeanNormal(near);
     let minDot = 1;
     for (const sample of near) minDot = Math.min(minDot, sample.normal.dot(mean));
-    if (minDot > PLANE_TIGHT_DOT) return { kind: 'plane', normal: mean };
+    // A flat face clicked next to a hole reads the hole ("rim → diameter").
+    // A click on a curved wall always reads that wall itself — at a step
+    // between two coaxial cylinders, the neighbour must not win.
+    if (minDot > PLANE_TIGHT_DOT) return rimFit() ?? { kind: 'plane', normal: mean };
     const axial = fitAxialSurface(near);
     if (axial) return axial;
+    const rim = rimFit();
+    if (rim) return rim;
     if (minDot > PLANE_LOOSE_DOT) return { kind: 'plane', normal: mean };
+  } else {
+    const rim = rimFit();
+    if (rim) return rim;
   }
 
   const axial = fitAxialSurface(samples);
   if (axial) return axial;
   return { kind: 'unknown' };
+}
+
+/* ------------------------------------------------------------------------ */
+/* B-rep faces (STEP / IGES / BREP)                                          */
+/* ------------------------------------------------------------------------ */
+
+/** Plane tolerance for a whole B-rep face (facet normals from float32 data). */
+const FACE_PLANE_DOT = Math.cos(THREE.MathUtils.degToRad(0.5));
+/** Max vertex deviation from a whole-face cylinder/cone fit, relative to the radius. */
+const FACE_FIT_TOLERANCE = 2e-3;
+/** More facets than this are subsampled evenly — the fit only needs coverage. */
+const MAX_FACE_TRIANGLES = 12000;
+
+/** Index of the face whose [first, last] triangle range holds `triangle`, or -1. */
+export function faceOfTriangle(ranges: Uint32Array, triangle: number): number {
+  let lo = 0;
+  let hi = ranges.length / 2 - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (triangle < ranges[mid * 2]) hi = mid - 1;
+    else if (triangle > ranges[mid * 2 + 1]) lo = mid + 1;
+    else return mid;
+  }
+  return -1;
+}
+
+function faceSamples(geometry: THREE.BufferGeometry, ranges: Uint32Array, face: number): TriSample[] {
+  const first = ranges[face * 2];
+  const last = ranges[face * 2 + 1];
+  const step = Math.max(1, Math.ceil((last - first + 1) / MAX_FACE_TRIANGLES));
+  const samples: TriSample[] = [];
+  for (let t = first; t <= last; t += step) {
+    const vertices = triangleVertices(geometry, t);
+    if (!vertices) continue;
+    const triangle = new THREE.Triangle(...vertices);
+    const area = triangle.getArea();
+    if (!(area > 0)) continue;
+    samples.push({ a: vertices[0], b: vertices[1], c: vertices[2], normal: triangle.getNormal(new THREE.Vector3()), area });
+  }
+  return samples;
+}
+
+/**
+ * Fit the complete B-rep face the click landed on. Its tessellation vertices
+ * lie exactly on the analytic surface and cover all of it, so a plane,
+ * cylinder or cone comes out exact; anything else (sphere, torus, B-spline)
+ * is reported as unknown rather than guessed.
+ */
+function classifyWholeFace(
+  geometry: THREE.BufferGeometry,
+  ranges: Uint32Array,
+  face: number,
+  samples: TriSample[],
+): FaceFit {
+  if (samples.length === 0) return { kind: 'unknown' };
+  const mean = weightedMeanNormal(samples);
+  let minDot = 1;
+  for (const sample of samples) minDot = Math.min(minDot, sample.normal.dot(mean));
+  if (minDot > FACE_PLANE_DOT) return { kind: 'plane', normal: mean };
+  const cylinder = exactCylinder(geometry, ranges, face);
+  if (cylinder) return cylinder;
+  // Cones and anything else: the facet-based fit, held to a strict tolerance.
+  const fit = fitAxialSurface(samples);
+  if (!fit || maxRadialDeviation(samples, fit) > 0.01 * fit.radius) return { kind: 'unknown' };
+  return fit;
+}
+
+/**
+ * Cylinder test on a whole B-rep face using the tessellation's vertex
+ * normals, which OpenCASCADE evaluates on the exact surface: a cylinder's
+ * normals are all perpendicular to one axis (the null direction of Σ n nᵀ),
+ * and its vertices then lie on one circle in the plane across that axis.
+ */
+function exactCylinder(geometry: THREE.BufferGeometry, ranges: Uint32Array, face: number): AxialFit | null {
+  const normalAttribute = geometry.attributes.normal;
+  const position = geometry.attributes.position;
+  const index = geometry.index;
+  if (!normalAttribute || !index) return null;
+
+  const first = ranges[face * 2];
+  const last = ranges[face * 2 + 1];
+  const vertices = new Set<number>();
+  for (let t = first; t <= last; t++) {
+    for (let k = 0; k < 3; k++) vertices.add(index.getX(t * 3 + k));
+  }
+  if (vertices.size < 6) return null;
+
+  const normals: THREE.Vector3[] = [];
+  const points: THREE.Vector3[] = [];
+  const covariance = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+  for (const v of vertices) {
+    const n = new THREE.Vector3().fromBufferAttribute(normalAttribute, v).normalize();
+    normals.push(n);
+    points.push(new THREE.Vector3().fromBufferAttribute(position, v));
+    const c = [n.x, n.y, n.z];
+    for (let r = 0; r < 3; r++) for (let q = 0; q < 3; q++) covariance[r][q] += c[r] * c[q];
+  }
+  const seed = new THREE.Vector3().crossVectors(normals[0], normals[normals.length >> 1]);
+  const axis = smallestEigenvector(covariance, seed.lengthSq() > 1e-12 ? seed : new THREE.Vector3(0, 0, 1));
+  if (!axis) return null;
+  axis.normalize();
+  if (normals.some((n) => Math.abs(n.dot(axis)) > 0.01)) return null;
+
+  const e1 = new THREE.Vector3(1, 0, 0);
+  if (Math.abs(axis.x) > 0.9) e1.set(0, 1, 0);
+  e1.crossVectors(axis, e1).normalize();
+  const e2 = new THREE.Vector3().crossVectors(axis, e1);
+  let su = 0, sv = 0, suu = 0, svv = 0, suv = 0, r0 = 0, r1 = 0, r2 = 0;
+  const uv = points.map((p) => {
+    const u = p.dot(e1);
+    const w = p.dot(e2);
+    const q = u * u + w * w;
+    su += u; sv += w; suu += u * u; svv += w * w; suv += u * w;
+    r0 -= u * q; r1 -= w * q; r2 -= q;
+    return [u, w] as const;
+  });
+  const solution = solve3([[suu, suv, su], [suv, svv, sv], [su, sv, points.length]], [r0, r1, r2]);
+  if (!solution) return null;
+  const u0 = -solution[0] / 2;
+  const v0 = -solution[1] / 2;
+  const radiusSq = u0 * u0 + v0 * v0 - solution[2];
+  if (!(radiusSq > 0)) return null;
+  const radius = Math.sqrt(radiusSq);
+  if (uv.some(([u, w]) => Math.abs(Math.hypot(u - u0, w - v0) - radius) > FACE_FIT_TOLERANCE * radius)) {
+    return null;
+  }
+
+  const azimuths = new Set(normals.map((n) => Math.round(Math.atan2(n.dot(e2), n.dot(e1)) / THREE.MathUtils.degToRad(6))));
+  return {
+    kind: 'cylinder',
+    axis,
+    axisPoint: new THREE.Vector3().addScaledVector(e1, u0).addScaledVector(e2, v0),
+    radius,
+    halfAngle: 0,
+    apex: null,
+    slope: 0,
+    offset: radius,
+    coverageDeg: Math.min(360, azimuths.size * 6),
+  };
+}
+
+/**
+ * Largest distance of a face vertex from the fitted surface of revolution.
+ * The local fit tolerates a few percent of the radius; a whole B-rep face
+ * must match almost exactly, or a gently curved free-form face could pass
+ * as a huge cylinder.
+ */
+function maxRadialDeviation(samples: TriSample[], fit: AxialFit): number {
+  const rel = new THREE.Vector3();
+  let worst = 0;
+  for (const sample of samples) {
+    for (const p of [sample.a, sample.b, sample.c]) {
+      rel.copy(p).sub(fit.axisPoint);
+      const t = rel.dot(fit.axis);
+      const r = rel.addScaledVector(fit.axis, -t).length();
+      worst = Math.max(worst, Math.abs(r - (fit.slope * t + fit.offset)));
+    }
+  }
+  return worst;
 }
 
 /* ------------------------------------------------------------------------ */
@@ -680,7 +894,20 @@ function fitEdgeChain(chain: EdgeSegment[], pick: THREE.Vector3): EdgeFit {
   }
 
   const scale = Math.max(totalLength, 1e-9);
-  const circleOk = circle !== null && circle.span >= MIN_ARC_SPAN && circle.rms <= 0.03 * circle.radius;
+  // Polygon outlines can be concyclic (every rectangle is): their vertices
+  // fit a circle while the edges are straight. A tessellated arc has short
+  // segments seen from its center, a polygon side spans 60–90°.
+  const segmentsAreArcLike = (c: { center: THREE.Vector3 }) => {
+    const u = new THREE.Vector3();
+    const w = new THREE.Vector3();
+    return chain.every((seg) => {
+      u.subVectors(seg.a, c.center);
+      w.subVectors(seg.b, c.center);
+      return u.angleTo(w) <= MAX_ARC_SEGMENT;
+    });
+  };
+  const circleOk = circle !== null && circle.span >= MIN_ARC_SPAN && circle.rms <= 0.03 * circle.radius
+    && segmentsAreArcLike(circle);
   const lineOk = chain.length >= 3 && lineRms <= 0.02 * scale;
 
   // A short arc also fits a line — prefer the circle when it is confident.
@@ -736,7 +963,6 @@ export function classifyPickAt(
   mesh: THREE.Mesh,
   faceIndex: number | null,
   worldPoint: THREE.Vector3,
-  modelDiagonal: number,
 ): SmartPick {
   const point = worldPoint.toArray() as Vec3;
   const geometry = mesh.geometry as THREE.BufferGeometry | undefined;
@@ -745,6 +971,11 @@ export function classifyPickAt(
   const localPoint = mesh.worldToLocal(worldPoint.clone());
   const vertices = triangleVertices(geometry, faceIndex);
   if (!vertices) return { kind: 'unknown', point };
+
+  // Sample sizes follow the clicked part, not the whole assembly: the same
+  // part must measure the same inside a small or a huge model.
+  if (!geometry.boundingBox) geometry.computeBoundingBox();
+  const partDiagonal = geometry.boundingBox!.getSize(new THREE.Vector3()).length() || 1;
 
   const hitNormal = new THREE.Triangle(...vertices).getNormal(new THREE.Vector3());
   const minEdge = Math.min(
@@ -755,16 +986,29 @@ export function classifyPickAt(
 
   // Sample sphere: wide enough to span a few tessellation facets, small
   // enough not to swallow neighbouring features. Expand if too sparse.
-  const initialRadius = THREE.MathUtils.clamp(minEdge * 3, modelDiagonal * 0.004, modelDiagonal * 0.08);
+  const initialRadius = THREE.MathUtils.clamp(minEdge * 3, partDiagonal * 0.004, partDiagonal * 0.08);
   let radius = initialRadius;
   let samples = collectTriangles(geometry, new THREE.Sphere(localPoint, radius));
-  for (let attempt = 0; attempt < 3 && samples.length < 12 && radius < modelDiagonal * 0.3; attempt++) {
+  for (let attempt = 0; attempt < 3 && samples.length < 12 && radius < partDiagonal * 0.3; attempt++) {
     radius *= 2;
     samples = collectTriangles(geometry, new THREE.Sphere(localPoint, radius));
   }
   if (samples.length < 2) return { kind: 'unknown', point };
 
-  const face = classifyFace(samples, hitNormal);
+  // CAD formats know which B-rep face each triangle belongs to.
+  const faceRanges = geometry.userData.faceRanges as Uint32Array | undefined;
+  const brepFace = faceRanges ? faceOfTriangle(faceRanges, faceIndex) : -1;
+  let face = brepFace >= 0
+    ? classifyWholeFace(geometry, faceRanges!, brepFace, faceSamples(geometry, faceRanges!, brepFace))
+    : classifyFace(samples, hitNormal);
+  if (brepFace < 0 && face.kind === 'cylinder') {
+    face = { ...refineCylinder(geometry, face, localPoint, partDiagonal * 0.3), kind: 'cylinder' };
+  }
+  // A radius beyond the part's own size is a nearly flat patch, not a cylinder.
+  if (brepFace < 0 && (face.kind === 'cylinder' || face.kind === 'cone') && face.radius > partDiagonal) {
+    face = { kind: 'unknown' };
+  }
+  const approx = brepFace < 0 && (face.kind === 'cylinder' || face.kind === 'cone') && face.coverageDeg < 90;
   const edgeThreshold = Math.max(minEdge * 1.2, initialRadius * 0.2);
   const edge = classifyEdge(samples, localPoint, edgeThreshold, initialRadius * 1e-3);
 
@@ -808,6 +1052,7 @@ export function classifyPickAt(
         center: center.toArray() as Vec3,
         axis: axisWorld.toArray() as Vec3,
         radius: face.radius,
+        ...(approx ? { approx } : {}),
       };
     }
     return {
@@ -818,6 +1063,7 @@ export function classifyPickAt(
       apex: face.apex ? toWorldPoint(face.apex) : (center.toArray() as Vec3),
       halfAngleDeg: THREE.MathUtils.radToDeg(face.halfAngle),
       radiusAtPoint: worldPoint.distanceTo(center),
+      ...(approx ? { approx } : {}),
     };
   }
 

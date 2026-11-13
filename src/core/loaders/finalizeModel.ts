@@ -1,9 +1,13 @@
 import * as THREE from 'three';
 import type { LoadedModel, ModelMesh, ModelNode } from '@/core/types';
+import { clearMaterialCache } from '@/core/materials/presets';
+
+let modelSeq = 0;
 
 /**
  * Shared last mile for every loader: index the tree, compute bounds and
- * stats, build BVHs for fast picking.
+ * stats. Loaders deliver BVHs built in the geometry worker; only geometry
+ * without one (the tiny built-in sample) gets a main-thread BVH here.
  */
 export function finalizeModel(
   name: string,
@@ -34,24 +38,33 @@ export function finalizeModel(
     triangleCount += Math.floor(
       (geometry.index ? geometry.index.count : geometry.attributes.position.count) / 3,
     );
-    try {
-      geometry.computeBoundsTree();
-    } catch {
-      // BVH is an optimization only — picking falls back to linear raycast.
+    if (!geometry.boundsTree) {
+      try {
+        geometry.computeBoundsTree({ indirect: true });
+      } catch {
+        // BVH is an optimization only — picking falls back to linear raycast.
+      }
     }
   }
   if (boundingBox.isEmpty()) {
     boundingBox.set(new THREE.Vector3(-1, -1, -1), new THREE.Vector3(1, 1, 1));
   }
 
-  return { name, root, meshes, meshToNode, nodeIndex, boundingBox, triangleCount, partCount, upAxis };
+  return {
+    uid: ++modelSeq, name, root, meshes, meshToNode, nodeIndex, boundingBox, triangleCount, partCount, upAxis,
+  };
 }
 
-/** Free GPU resources when a model is replaced or closed. */
-export function disposeModel(model: LoadedModel): void {
+/**
+ * Free GPU resources when a model is replaced or closed. `clearMaterials`
+ * is false for a model that was never shown (an aborted load): the shared
+ * material cache still serves the model on screen.
+ */
+export function disposeModel(model: LoadedModel, clearMaterials = true): void {
   for (const mesh of model.meshes) {
     mesh.geometry.disposeBoundsTree?.();
     mesh.geometry.dispose();
     mesh.originalMaterial?.dispose();
   }
+  if (clearMaterials) clearMaterialCache();
 }

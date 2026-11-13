@@ -1,19 +1,25 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useViewer } from '@/store/viewerStore';
 import {
   DEFAULT_SETTINGS, useSettings,
-  type Lang, type ProjectionMode, type RenderQuality, type SettingsValues, type ThemeId,
+  type Lang, type ProjectionMode, type RenderQuality, type SettingsValues,
+  type TessellationQuality, type ThemeId,
 } from '@/store/settingsStore';
-import { tr, useT } from '@/i18n';
+import { useT } from '@/i18n';
 import { applyFileAssociations, changedAssociations } from '@/core/desktop';
 import { createSampleModel } from '@/core/sample';
 import { ACCEPTED_EXTENSIONS } from '@/core/loaders/openModelFile';
 import { ToolButton } from '@/components/ui/ToolButton';
+import { usePopover } from '@/components/ui/usePopover';
 import { CubeIcon, GridIcon, MenuIcon } from '@/components/ui/icons';
 
 function snapshot(): SettingsValues {
-  const { language, theme, projection, quality, transparency, fileAssociations } = useSettings.getState();
-  return { language, theme, projection, quality, transparency, fileAssociations: { ...fileAssociations } };
+  const { language, theme, projection, quality, tessellation, transparency, fileAssociations } =
+    useSettings.getState();
+  return {
+    language, theme, projection, quality, tessellation, transparency,
+    fileAssociations: { ...fileAssociations },
+  };
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
@@ -48,6 +54,30 @@ function Segmented<T extends string>({
   );
 }
 
+/** Third-party license shipped with the build, expanded in place on demand. */
+function LicenseText({ name, file }: { name: string; file: string }) {
+  const t = useT();
+  const [text, setText] = useState<string | null>(null);
+  return (
+    <details
+      className="text-[11px] text-ink-soft"
+      onToggle={(event) => {
+        if (!(event.currentTarget as HTMLDetailsElement).open || text !== null) return;
+        fetch(`${import.meta.env.BASE_URL}vendor/occt/${file}`)
+          .then((response) => (response.ok ? response.text() : Promise.reject(response.status)))
+          .then(setText, () => setText('—'));
+      }}
+    >
+      <summary className="cursor-pointer py-0.5 hover:text-ink">
+        {name} — {t('set.licenseText')}
+      </summary>
+      <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded-md bg-panel-2 p-2 text-[10px] leading-snug text-ink-faint">
+        {text ?? '…'}
+      </pre>
+    </details>
+  );
+}
+
 const THEME_PREVIEW: Record<ThemeId, string> = {
   white: '#ffffff',
   gray: '#3d424a',
@@ -55,9 +85,8 @@ const THEME_PREVIEW: Record<ThemeId, string> = {
 };
 
 export function SettingsMenu() {
-  const [open, setOpen] = useState(false);
+  const { open, setOpen, containerRef } = usePopover();
   const [draft, setDraft] = useState<SettingsValues>(snapshot);
-  const containerRef = useRef<HTMLDivElement>(null);
   const t = useT();
 
   const setModel = useViewer((s) => s.setModel);
@@ -65,13 +94,7 @@ export function SettingsMenu() {
   const toggleGrid = useViewer((s) => s.toggleGrid);
 
   useEffect(() => {
-    if (!open) return;
-    setDraft(snapshot());
-    const onPointerDown = (event: PointerEvent) => {
-      if (!containerRef.current?.contains(event.target as Node)) setOpen(false);
-    };
-    document.addEventListener('pointerdown', onPointerDown);
-    return () => document.removeEventListener('pointerdown', onPointerDown);
+    if (open) setDraft(snapshot());
   }, [open]);
 
   const patch = (values: Partial<SettingsValues>) =>
@@ -88,10 +111,10 @@ export function SettingsMenu() {
     // resets the OS default app, so untouched types must be left alone.
     void applyFileAssociations(associationChanges)
       .then((applied) => {
-        if (applied) useViewer.getState().setNotice(tr('set.assocApplied'));
+        if (applied) useViewer.getState().setNotice({ key: 'set.assocApplied' });
       })
       .catch((error) => {
-        useViewer.getState().setNotice(tr('set.assocFailed', { error: String(error) }));
+        useViewer.getState().setNotice({ key: 'set.assocFailed', params: { error: String(error) } });
       });
     setOpen(false);
   };
@@ -110,10 +133,15 @@ export function SettingsMenu() {
         label={t('toolbar.menu')}
         title={t('tip.menu')}
         active={open}
+        expanded={open}
         onClick={() => setOpen((value) => !value)}
       />
       {open && (
-        <div className="absolute left-0 top-full z-50 mt-2 max-h-[calc(100vh-108px)] w-[19.5rem] overflow-y-auto rounded-2xl border border-line bg-panel p-3 shadow-xl">
+        <div
+          role="dialog"
+          aria-label={t('set.title')}
+          className="absolute left-0 top-full z-50 mt-2 max-h-[calc(100vh-108px)] w-[19.5rem] overflow-y-auto rounded-2xl border border-line bg-panel p-3 shadow-xl"
+        >
           {/* Quick actions (moved out of the toolbar) */}
           <SectionLabel>{t('set.quick')}</SectionLabel>
           <button
@@ -179,6 +207,18 @@ export function SettingsMenu() {
             ]}
           />
 
+          <SectionLabel>{t('set.tessellation')}</SectionLabel>
+          <Segmented<TessellationQuality>
+            value={draft.tessellation}
+            onChange={(tessellation) => patch({ tessellation })}
+            options={[
+              { id: 'coarse', label: t('set.tessellation.coarse') },
+              { id: 'standard', label: t('set.tessellation.standard') },
+              { id: 'fine', label: t('set.tessellation.fine') },
+            ]}
+          />
+          <p className="mt-1.5 text-[10.5px] leading-snug text-ink-faint">{t('set.tessellationNote')}</p>
+
           <SectionLabel>
             {t('set.transparency')}: {Math.round((1 - draft.transparency) * 100)} %
           </SectionLabel>
@@ -215,6 +255,11 @@ export function SettingsMenu() {
             ))}
           </div>
           <p className="mt-1.5 text-[10.5px] leading-snug text-ink-faint">{t('set.assocNote')}</p>
+
+          <SectionLabel>{t('set.about')}</SectionLabel>
+          <p className="mb-1 text-[11px] leading-snug text-ink-soft">{t('set.aboutText')}</p>
+          <LicenseText name="Open CASCADE Technology" file="license.occt.txt" />
+          <LicenseText name="occt-import-js" file="license.occt-import-js.txt" />
 
           <div className="mt-4 flex gap-2">
             <button

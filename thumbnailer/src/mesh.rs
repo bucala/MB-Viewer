@@ -62,14 +62,28 @@ pub fn parse_auto(bytes: &[u8]) -> Option<Mesh> {
 }
 
 fn parse_stl(bytes: &[u8]) -> Option<Mesh> {
-    // Binary STL: 80-byte header + u32 count + 50 bytes per triangle.
+    // Binary STL: 80-byte header + u32 count + 50 bytes per triangle. Some
+    // exporters append padding/metadata, so allow trailing bytes — unless the
+    // file is really ASCII (a binary header may also start with "solid").
     if bytes.len() >= 84 {
         let count = u32::from_le_bytes([bytes[80], bytes[81], bytes[82], bytes[83]]) as usize;
-        if bytes.len() == 84 + count * 50 && count > 0 {
-            return parse_stl_binary(bytes, count);
+        let needed = count.checked_mul(50).and_then(|n| n.checked_add(84));
+        if let Some(needed) = needed.filter(|_| count > 0) {
+            if bytes.len() == needed || (bytes.len() > needed && !looks_ascii_stl(bytes)) {
+                return parse_stl_binary(bytes, count);
+            }
         }
     }
     parse_stl_ascii(bytes)
+}
+
+/// "solid" up front and a "facet" soon after — without copying the file.
+fn looks_ascii_stl(bytes: &[u8]) -> bool {
+    let head = &bytes[..bytes.len().min(512)];
+    let trimmed = head.iter().position(|b| !b.is_ascii_whitespace()).map_or(&head[..0], |i| &head[i..]);
+    trimmed.len() >= 5
+        && trimmed[..5].eq_ignore_ascii_case(b"solid")
+        && head.windows(5).any(|w| w.eq_ignore_ascii_case(b"facet"))
 }
 
 fn parse_stl_binary(bytes: &[u8], count: usize) -> Option<Mesh> {
@@ -92,7 +106,8 @@ fn parse_stl_binary(bytes: &[u8], count: usize) -> Option<Mesh> {
 
 fn parse_stl_ascii(bytes: &[u8]) -> Option<Mesh> {
     let text = std::str::from_utf8(bytes).ok()?;
-    if !text.trim_start().to_ascii_lowercase().starts_with("solid") {
+    let start = text.trim_start();
+    if !start.get(..5).is_some_and(|p| p.eq_ignore_ascii_case("solid")) {
         return None;
     }
     let mut verts: Vec<V3> = Vec::new();
@@ -118,7 +133,9 @@ fn parse_obj(bytes: &[u8]) -> Option<Mesh> {
         if let Some(rest) = line.strip_prefix("v ") {
             let mut it = rest.split_whitespace().filter_map(|t| t.parse::<f32>().ok());
             if let (Some(x), Some(y), Some(z)) = (it.next(), it.next(), it.next()) {
-                verts.push([x, y, z]);
+                // OBJ is Y-up (as MB Viewer treats it); the renderer looks at
+                // Z-up models, so rotate +90° about X: (x, y, z) -> (x, -z, y).
+                verts.push([x, -z, y]);
             }
         } else if let Some(rest) = line.strip_prefix("f ") {
             let idx: Vec<usize> = rest
@@ -141,4 +158,56 @@ fn parse_obj(bytes: &[u8]) -> Option<Mesh> {
         }
     }
     Mesh::from_tris(tris)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn binary_stl(triangles: u32, trailing: usize) -> Vec<u8> {
+        let mut bytes = vec![0u8; 84 + triangles as usize * 50 + trailing];
+        bytes[80..84].copy_from_slice(&triangles.to_le_bytes());
+        for t in 0..triangles as usize {
+            for (k, value) in [0.0f32, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0].iter().enumerate() {
+                let offset = 84 + t * 50 + 12 + k * 4;
+                bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+            }
+        }
+        bytes
+    }
+
+    #[test]
+    fn binary_stl_exact_and_with_trailing_bytes() {
+        assert_eq!(parse_auto(&binary_stl(2, 0)).unwrap().tris.len(), 2);
+        assert_eq!(parse_auto(&binary_stl(2, 37)).unwrap().tris.len(), 2);
+    }
+
+    #[test]
+    fn binary_header_starting_with_solid_is_still_binary() {
+        let mut bytes = binary_stl(1, 0);
+        bytes[..5].copy_from_slice(b"solid");
+        assert_eq!(parse_auto(&bytes).unwrap().tris.len(), 1);
+    }
+
+    #[test]
+    fn ascii_stl() {
+        let text = b"  SOLID x\nfacet normal 0 0 1\nouter loop\nvertex 0 0 0\nvertex 1 0 0\nvertex 0 1 0\nendloop\nendfacet\nendsolid x\n";
+        assert_eq!(parse_auto(text).unwrap().tris.len(), 1);
+    }
+
+    #[test]
+    fn obj_is_rotated_from_y_up_to_z_up() {
+        let mesh = parse_auto(b"v 0 5 0\nv 1 5 0\nv 0 5 1\nf 1 2 3\n").unwrap();
+        assert_eq!(mesh.max[2], 5.0);
+        assert_eq!(mesh.min[1], -1.0);
+    }
+
+    #[test]
+    fn garbage_and_truncated_input_yield_none() {
+        assert!(parse_auto(b"").is_none());
+        assert!(parse_auto(&[0xff; 300]).is_none());
+        let mut truncated = binary_stl(4, 0);
+        truncated.truncate(84 + 120);
+        assert!(parse_auto(&truncated).is_none());
+    }
 }
