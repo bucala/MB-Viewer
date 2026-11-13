@@ -5,6 +5,7 @@
 
 mod associations;
 
+use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Mutex;
 
@@ -14,6 +15,17 @@ use tauri::State;
 /// Model files the process was launched with, waiting for the webview to
 /// pick them up once the frontend is ready.
 struct LaunchFiles(Mutex<Vec<String>>);
+
+/// Paths the OS handed us (launch arguments, files forwarded by a second
+/// instance). `read_model_file` reads only these, so the webview cannot be
+/// used to read arbitrary files from disk.
+struct OpenableFiles(Mutex<HashSet<String>>);
+
+impl OpenableFiles {
+    fn allow(&self, paths: &[String]) {
+        self.0.lock().unwrap().extend(paths.iter().cloned());
+    }
+}
 
 /// Keep only arguments that point at an existing, openable model file.
 fn model_file_args<I: IntoIterator<Item = String>>(args: I) -> Vec<String> {
@@ -39,7 +51,13 @@ fn take_launch_files(state: State<'_, LaunchFiles>) -> Vec<String> {
 /// Read a model file as raw bytes (an IPC raw response, not JSON), so the
 /// frontend can feed it through the same loaders as picked/dropped files.
 #[tauri::command]
-fn read_model_file(path: String) -> Result<tauri::ipc::Response, String> {
+fn read_model_file(
+    path: String,
+    openable: State<'_, OpenableFiles>,
+) -> Result<tauri::ipc::Response, String> {
+    if !openable.0.lock().unwrap().contains(&path) {
+        return Err(format!("not a file opened through the OS: {path}"));
+    }
     let file = Path::new(&path);
     let supported = file
         .extension()
@@ -74,14 +92,17 @@ pub fn run() {
         }
         let files = model_file_args(args.into_iter().skip(1));
         if !files.is_empty() {
+            app.state::<OpenableFiles>().allow(&files);
             let _ = app.emit("mb-viewer://open-files", files);
         }
     }));
 
+    let launch_files = model_file_args(std::env::args().skip(1));
+    let openable = OpenableFiles(Mutex::new(launch_files.iter().cloned().collect()));
+
     builder
-        .manage(LaunchFiles(Mutex::new(model_file_args(
-            std::env::args().skip(1),
-        ))))
+        .manage(LaunchFiles(Mutex::new(launch_files)))
+        .manage(openable)
         .invoke_handler(tauri::generate_handler![
             take_launch_files,
             read_model_file,

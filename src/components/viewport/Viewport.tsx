@@ -61,6 +61,9 @@ export function Viewport() {
   return (
     <Canvas
       key={antialias ? 'aa' : 'noaa'}
+      // Render only when something changes (controls, props, invalidate()):
+      // an idle viewer must not keep the GPU busy and drain laptop/phone batteries.
+      frameloop="demand"
       dpr={dpr}
       gl={{ antialias, stencil: true }}
       className="touch-none"

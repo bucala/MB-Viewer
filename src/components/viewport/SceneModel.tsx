@@ -133,6 +133,12 @@ export function SceneModel() {
     return true;
   }, [model, section]);
 
+  // The plane is mutated in place (see above), which three.js cannot see:
+  // redraw on every move — with or without section caps.
+  useEffect(() => {
+    invalidate();
+  }, [section, invalidate]);
+
   const sectionActiveRef = useRef(sectionActive);
   sectionActiveRef.current = sectionActive;
   const clippedRaycast = useMemo(
@@ -155,10 +161,6 @@ export function SceneModel() {
     invalidate();
   }, [entries, sectionActive, transparency, invalidate]);
 
-  const modelDiagonal = useMemo(
-    () => (model ? model.boundingBox.getSize(new THREE.Vector3()).length() : 1),
-    [model],
-  );
 
   if (!model) return null;
 
@@ -184,7 +186,6 @@ export function SceneModel() {
             event.object as THREE.Mesh,
             event.faceIndex ?? null,
             event.point.clone(),
-            modelDiagonal,
           );
       store.handleSmartPick(pick, point);
     }

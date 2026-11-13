@@ -3,17 +3,27 @@ import type {
   LoadedModel, MaterialAssignment, Measurement, SectionState, ToolId, Vec3,
 } from '@/core/types';
 import {
-  circleFrom3Points, distanceBetween, formatMm,
+  circleFrom3Points, distanceBetween,
   pairMeasure, type MeasureEntity, type PairResult,
 } from '@/core/measure/geometry';
 import type { SmartPick } from '@/core/measure/surface';
 import { disposeModel } from '@/core/loaders/finalizeModel';
-import { tr, type TranslationKey } from '@/i18n';
+import type { TranslationKey } from '@/i18n';
 
 interface LoadState {
   state: 'idle' | 'loading' | 'error';
   fileName?: string;
   error?: string;
+}
+
+/**
+ * A status-bar hint, stored untranslated so it follows language switches.
+ * `measurement` is shown in front of the hint ("Ø 10,00 mm — …").
+ */
+export interface Notice {
+  key: TranslationKey;
+  params?: Record<string, string | number>;
+  measurement?: Measurement;
 }
 
 interface ViewerState {
@@ -41,8 +51,8 @@ interface ViewerState {
   sidebarOpen: boolean;
   /** Bumped to ask the camera rig to re-frame the model. */
   fitSignal: number;
-  /** Transient hint shown in the status bar. */
-  notice: string | null;
+  /** Transient hint shown in the status bar (translated when shown). */
+  notice: Notice | null;
 
   beginLoad(fileName: string): void;
   failLoad(error: string): void;
@@ -71,7 +81,7 @@ interface ViewerState {
   requestFit(): void;
   toggleGrid(): void;
   toggleSidebar(): void;
-  setNotice(notice: string | null): void;
+  setNotice(notice: Notice | null): void;
 }
 
 let measurementSeq = 0;
@@ -91,14 +101,20 @@ const SECOND_PICK_HINTS: Partial<Record<ToolId, TranslationKey>> = {
   'measure-angle': 'hint.angle.second',
 };
 
-const diameterMeasurement = (center: Vec3, axis: Vec3, radius: number, pickPoint: Vec3): Measurement => {
+const diameterMeasurement = (
+  center: Vec3,
+  axis: Vec3,
+  radius: number,
+  pickPoint: Vec3,
+  approx = false,
+): Measurement => {
   const value = radius * 2;
   return {
     id: `m${++measurementSeq}`,
     type: 'radius',
     points: [pickPoint],
     value,
-    label: `Ø ${formatMm(value)} mm`,
+    approx,
     circle: { center, radius, normal: axis },
   };
 };
@@ -117,7 +133,9 @@ export const useViewer = create<ViewerState>()((set, get) => ({
   overrides: {},
   section: { axis: 'none', position: 0.5, flip: false, fill: true },
   gridVisible: true,
-  sidebarOpen: true,
+  // Phones start with the tree closed — open, it would cover the model.
+  sidebarOpen: typeof window === 'undefined' || !window.matchMedia
+    || window.matchMedia('(min-width: 768px)').matches,
   fitSignal: 0,
   notice: null,
 
@@ -171,7 +189,7 @@ export const useViewer = create<ViewerState>()((set, get) => ({
       tool,
       pendingPoints: [],
       pendingEntity: null,
-      notice: tool === 'select' ? null : tr(TOOL_START_HINTS[tool]),
+      notice: tool === 'select' ? null : { key: TOOL_START_HINTS[tool] },
     }),
 
   addMeasurePoint: (point) => {
@@ -183,7 +201,7 @@ export const useViewer = create<ViewerState>()((set, get) => ({
     if (points.length < needed) {
       const hint: TranslationKey =
         tool === 'measure-point' ? 'hint.p2p.1' : points.length === 1 ? 'hint.radius.1' : 'hint.radius.2';
-      set({ pendingPoints: points, notice: tr(hint) });
+      set({ pendingPoints: points, notice: { key: hint } });
       return;
     }
 
@@ -192,25 +210,23 @@ export const useViewer = create<ViewerState>()((set, get) => ({
       const value = distanceBetween(points[0], points[1]);
       measurement = {
         id: `m${++measurementSeq}`, type: 'distance', points, value,
-        label: `${formatMm(value)} mm`,
       };
     } else {
       const circle = circleFrom3Points(points[0], points[1], points[2]);
       if (!circle) {
-        set({ pendingPoints: [], notice: tr('hint.collinear') });
+        set({ pendingPoints: [], notice: { key: 'hint.collinear' } });
         return;
       }
       const value = circle.radius * 2;
       measurement = {
-        id: `m${++measurementSeq}`, type: 'radius', points, value,
-        label: `Ø ${formatMm(value)} mm`, circle,
+        id: `m${++measurementSeq}`, type: 'radius', points, value, circle,
       };
     }
 
     set({
       pendingPoints: [],
       measurements: [...measurements, measurement],
-      notice: `${measurement.label} — ${tr(TOOL_START_HINTS[tool])}`,
+      notice: { key: TOOL_START_HINTS[tool], measurement },
     });
   },
 
@@ -224,12 +240,12 @@ export const useViewer = create<ViewerState>()((set, get) => ({
         measurements: [...measurements, measurement],
         pendingEntity: null,
         pendingPoints: [],
-        notice: `${measurement.label} — ${tr(extraKey ?? TOOL_START_HINTS[tool])}`,
+        notice: { key: extraKey ?? TOOL_START_HINTS[tool], measurement },
       });
 
     // Single-click results: cylinders, cones and circular edges.
     if (pick.kind === 'cylinder' && (tool === 'measure-auto' || tool === 'measure-radius')) {
-      commit(diameterMeasurement(pick.center, pick.axis, pick.radius, pick.point));
+      commit(diameterMeasurement(pick.center, pick.axis, pick.radius, pick.point, pick.approx));
       return;
     }
     if (pick.kind === 'circle' && (tool === 'measure-auto' || tool === 'measure-radius')) {
@@ -250,13 +266,12 @@ export const useViewer = create<ViewerState>()((set, get) => ({
           type: 'angle',
           points: [pick.point, pick.apex, mirror],
           value,
-          label: `${value.toFixed(1)}°`,
         });
         return;
       }
       if (tool === 'measure-radius') {
         // Diameter of the cone at the picked height.
-        commit(diameterMeasurement(pick.center, pick.axis, pick.radiusAtPoint, pick.point));
+        commit(diameterMeasurement(pick.center, pick.axis, pick.radiusAtPoint, pick.point, pick.approx));
         return;
       }
     }
@@ -268,7 +283,7 @@ export const useViewer = create<ViewerState>()((set, get) => ({
         // Unrecognized surface — fall back to the 3-point circle flow.
         get().addMeasurePoint(snapped);
       } else {
-        set({ notice: tr(tool === 'measure-angle' ? 'hint.angle.invalid' : 'hint.auto.unknown') });
+        set({ notice: { key: tool === 'measure-angle' ? 'hint.angle.invalid' : 'hint.auto.unknown' } });
       }
       return;
     }
@@ -285,7 +300,7 @@ export const useViewer = create<ViewerState>()((set, get) => ({
       set({
         pendingEntity: entity,
         pendingPoints: [entity.kind === 'point' ? entity.point : pick.point],
-        notice: tr(hint),
+        notice: { key: hint },
       });
       return;
     }
@@ -293,7 +308,7 @@ export const useViewer = create<ViewerState>()((set, get) => ({
     const mode = tool === 'measure-distance' ? 'distance' : tool === 'measure-angle' ? 'angle' : 'auto';
     const result = pairMeasure(pendingEntity, entity, mode);
     if (!result) {
-      set({ notice: tr('hint.angle.invalid') });
+      set({ notice: { key: 'hint.angle.invalid' } });
       return;
     }
     commit(toMeasurement(result), result.parallel === false ? 'hint.distance.nonparallel' : undefined);
@@ -356,6 +371,5 @@ function toMeasurement(result: PairResult): Measurement {
     type: result.type,
     points: result.points,
     value: result.value,
-    label: result.type === 'angle' ? `${result.value.toFixed(1)}°` : `${formatMm(result.value)} mm`,
   };
 }

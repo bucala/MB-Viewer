@@ -7,7 +7,14 @@ import { cp, mkdir, access } from 'node:fs/promises';
 
 const srcDir = new URL('../node_modules/occt-import-js/dist/', import.meta.url);
 const dstDir = new URL('../public/vendor/occt/', import.meta.url);
-const files = ['occt-import-js.js', 'occt-import-js.wasm'];
+// The LGPL-2.1 texts ship with the runtime: the license requires them to
+// accompany every copy (Settings → About shows them).
+const files = [
+  'occt-import-js.js',
+  'occt-import-js.wasm',
+  'license.occt.txt',
+  'license.occt-import-js.txt',
+];
 
 try {
   await access(srcDir);

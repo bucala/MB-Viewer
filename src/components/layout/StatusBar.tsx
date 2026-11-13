@@ -1,9 +1,10 @@
 import { useViewer } from '@/store/viewerStore';
-import { useNumberFormat, useT } from '@/i18n';
+import { useMeasurementFormat, useNumberFormat, useT } from '@/i18n';
 
 export function StatusBar() {
   const t = useT();
   const nf = useNumberFormat();
+  const fm = useMeasurementFormat();
   const model = useViewer((s) => s.model);
   const notice = useViewer((s) => s.notice);
   const measurements = useViewer((s) => s.measurements);
@@ -11,7 +12,9 @@ export function StatusBar() {
   return (
     <footer className="flex h-7 shrink-0 items-center justify-between border-t border-line bg-panel/85 px-3 text-[11px] text-ink-faint backdrop-blur">
       <span className="truncate">
-        {notice ?? (model ? model.name : t('status.ready'))}
+        {notice
+          ? `${notice.measurement ? `${fm(notice.measurement)} — ` : ''}${t(notice.key, notice.params)}`
+          : model ? model.name : t('status.ready')}
       </span>
       {model && (
         <span className="hidden shrink-0 sm:block">

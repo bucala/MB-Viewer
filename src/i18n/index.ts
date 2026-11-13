@@ -113,6 +113,17 @@ const en = {
   'set.quality.low': 'Low',
   'set.quality.medium': 'Medium',
   'set.quality.high': 'High',
+  'set.tessellation': 'CAD tessellation (STEP/IGES)',
+  'set.tessellation.coarse': 'Coarse',
+  'set.tessellation.standard': 'Standard',
+  'set.tessellation.fine': 'Fine',
+  'set.tessellationNote': 'Applies to the next opened CAD file. Finer means smoother curves and more memory.',
+  'set.about': 'About & licenses',
+  'set.aboutText': 'MB Viewer is MIT-licensed. CAD import uses Open CASCADE Technology and occt-import-js, both under the GNU LGPL 2.1:',
+  'set.licenseText': 'license text',
+  'load.cancel': 'Cancel',
+  'tree.label': 'Assembly tree',
+  'tree.close': 'Close the tree',
   'set.transparency': 'Part transparency',
   'set.assoc': 'File associations',
   'set.assocNote': 'Applied immediately on Windows (for the current user); the desktop installer registers them too.',
@@ -241,6 +252,17 @@ const sk: Record<TranslationKey, string> = {
   'set.quality.low': 'Nízka',
   'set.quality.medium': 'Stredná',
   'set.quality.high': 'Vysoká',
+  'set.tessellation': 'Teselácia CAD (STEP/IGES)',
+  'set.tessellation.coarse': 'Hrubá',
+  'set.tessellation.standard': 'Štandardná',
+  'set.tessellation.fine': 'Jemná',
+  'set.tessellationNote': 'Uplatní sa pri ďalšom otvorenom CAD súbore. Jemnejšia znamená hladšie krivky a viac pamäte.',
+  'set.about': 'O aplikácii a licencie',
+  'set.aboutText': 'MB Viewer je pod licenciou MIT. Import CAD používa Open CASCADE Technology a occt-import-js, obe pod licenciou GNU LGPL 2.1:',
+  'set.licenseText': 'text licencie',
+  'load.cancel': 'Zrušiť',
+  'tree.label': 'Strom zostavy',
+  'tree.close': 'Zavrieť strom',
   'set.transparency': 'Priehľadnosť dielov',
   'set.assoc': 'Asociácie súborov',
   'set.assocNote': 'Na Windows sa použijú okamžite (pre aktuálneho používateľa); registruje ich aj inštalátor.',
@@ -290,8 +312,36 @@ export function useT() {
   );
 }
 
+const locale = (lang: Lang) => (lang === 'sk' ? 'sk-SK' : 'en-US');
+
+/**
+ * A measurement as shown to the user, in the given language's number
+ * format (10,00 mm in Slovak, 10.00 mm in English). Lengths get 2 decimals
+ * below 100 mm, 1 below 1000 mm, none above; angles 1 decimal.
+ */
+export function formatMeasurement(
+  m: { type: 'distance' | 'angle' | 'radius'; value: number; approx?: boolean },
+  lang: Lang,
+): string {
+  const digits = m.type === 'angle' ? 1 : m.value >= 1000 ? 0 : m.value >= 100 ? 1 : 2;
+  const number = new Intl.NumberFormat(locale(lang), {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+    useGrouping: false,
+  }).format(m.value);
+  if (m.type === 'angle') return `${number}°`;
+  if (m.type === 'radius') return `${m.approx ? '≈ ' : ''}Ø ${number} mm`;
+  return `${number} mm`;
+}
+
+/** Reactive measurement formatter for components. */
+export function useMeasurementFormat() {
+  const lang = useSettings((s) => s.language);
+  return useMemo(() => (m: Parameters<typeof formatMeasurement>[0]) => formatMeasurement(m, lang), [lang]);
+}
+
 /** Locale-aware integer formatting (12 400 in sk, 12,400 in en). */
 export function useNumberFormat() {
   const lang = useSettings((s) => s.language);
-  return useMemo(() => new Intl.NumberFormat(lang === 'sk' ? 'sk-SK' : 'en-US'), [lang]);
+  return useMemo(() => new Intl.NumberFormat(locale(lang)), [lang]);
 }

@@ -23,6 +23,7 @@ export function CameraRig() {
   const camera = useThree((s) => s.camera);
   const size = useThree((s) => s.size);
   const get = useThree((s) => s.get);
+  const invalidate = useThree((s) => s.invalidate);
   const controls = useThree((s) => s.controls) as unknown as ControlsLike | null;
 
   // Resizing the canvas (window, tree panel, phone rotation) must keep the
@@ -36,7 +37,8 @@ export function CameraRig() {
     const ortho = camera as THREE.OrthographicCamera;
     ortho.zoom *= size.height / before;
     ortho.updateProjectionMatrix();
-  }, [size.height, camera]);
+    invalidate();
+  }, [size.height, camera, invalidate]);
 
   useEffect(() => {
     if (!model) return;
@@ -71,7 +73,8 @@ export function CameraRig() {
     } else {
       camera.lookAt(center);
     }
-  }, [model, fitSignal, camera, get, controls]);
+    invalidate();
+  }, [model, fitSignal, camera, get, controls, invalidate]);
 
   return null;
 }

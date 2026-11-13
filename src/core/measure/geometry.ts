@@ -234,10 +234,3 @@ export function pairMeasure(
   if (result) return result;
   return { type: 'distance', value: distanceBetween(a.point, b.point), points: [a.point, b.point], parallel: false };
 }
-
-/** Format a millimeter value with sensible precision. */
-export function formatMm(value: number): string {
-  if (value >= 1000) return value.toFixed(0);
-  if (value >= 100) return value.toFixed(1);
-  return value.toFixed(2);
-}

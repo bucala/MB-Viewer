@@ -89,6 +89,12 @@ function applyTranslucency(material: THREE.Material, opacity: number): void {
 // 5,000-part assembly with one global preset uses a handful of materials.
 const cache = new Map<string, THREE.Material>();
 
+/** Drop all memoized materials (on model replacement) and free their GPU programs. */
+export function clearMaterialCache(): void {
+  cache.forEach((material) => material.dispose());
+  cache.clear();
+}
+
 /** The outer color and preset a part is actually drawn with. */
 export function resolveAppearance(entry: RenderEntry): { color: string; preset: MaterialPresetId } {
   const { assignment, mesh } = entry;
