@@ -14,6 +14,7 @@
  *   in : { id, format: 'step'|'iges'|'brep', buffer: ArrayBuffer }
  *   out: { id, ok: true, meshes: [...], root: {...} }   (typed arrays transferred)
  *        { id, ok: false, error: string }
+ *        { id, ok: false, error: string, retryStep: ArrayBuffer } (empty STEP only)
  */
 
 /* global importScripts, occtimportjs */
@@ -90,7 +91,13 @@ self.onmessage = async (event) => {
 
     if (!meshes.some((mesh) => mesh.positions.length >= 9 &&
         (!mesh.indices || mesh.indices.length >= 3))) {
-      throw new Error('The CAD file contains no triangle geometry.');
+      const failure = { id, ok: false, error: 'OpenCASCADE returned no displayable triangle geometry.' };
+      if (format === 'step') {
+        self.postMessage({ ...failure, retryStep: buffer }, [buffer]);
+      } else {
+        self.postMessage(failure);
+      }
+      return;
     }
     postResult(id, meshes, result.root);
   } catch (error) {

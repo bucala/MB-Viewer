@@ -1,3 +1,4 @@
+import { Capacitor } from '@capacitor/core';
 import { useEffect, useRef, useState } from 'react';
 import { useViewer } from '@/store/viewerStore';
 import {
@@ -59,6 +60,7 @@ export function SettingsMenu() {
   const [draft, setDraft] = useState<SettingsValues>(snapshot);
   const containerRef = useRef<HTMLDivElement>(null);
   const t = useT();
+  const isAndroid = Capacitor.getPlatform() === 'android';
 
   const setModel = useViewer((s) => s.setModel);
   const gridVisible = useViewer((s) => s.gridVisible);
@@ -192,29 +194,33 @@ export function SettingsMenu() {
           />
 
           <SectionLabel>{t('set.assoc')}</SectionLabel>
-          <div className="grid grid-cols-4 gap-1">
-            {ACCEPTED_EXTENSIONS.map((extension) => (
-              <label
-                key={extension}
-                className="flex cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-1 text-[11.5px] text-ink-soft transition-colors hover:bg-hover"
-              >
-                <input
-                  type="checkbox"
-                  checked={Boolean(draft.fileAssociations[extension])}
-                  onChange={(event) =>
-                    patch({
-                      fileAssociations: {
-                        ...draft.fileAssociations,
-                        [extension]: event.target.checked,
-                      },
-                    })
-                  }
-                />
-                .{extension}
-              </label>
-            ))}
-          </div>
-          <p className="mt-1.5 text-[10.5px] leading-snug text-ink-faint">{t('set.assocNote')}</p>
+          {!isAndroid && (
+            <div className="grid grid-cols-4 gap-1">
+              {ACCEPTED_EXTENSIONS.map((extension) => (
+                <label
+                  key={extension}
+                  className="flex cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-1 text-[11.5px] text-ink-soft transition-colors hover:bg-hover"
+                >
+                  <input
+                    type="checkbox"
+                    checked={Boolean(draft.fileAssociations[extension])}
+                    onChange={(event) =>
+                      patch({
+                        fileAssociations: {
+                          ...draft.fileAssociations,
+                          [extension]: event.target.checked,
+                        },
+                      })
+                    }
+                  />
+                  .{extension}
+                </label>
+              ))}
+            </div>
+          )}
+          <p className="mt-1.5 text-[10.5px] leading-snug text-ink-faint">
+            {t(isAndroid ? 'set.assocAndroid' : 'set.assocNote')}
+          </p>
 
           <div className="mt-4 flex gap-2">
             <button

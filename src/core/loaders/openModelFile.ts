@@ -1,6 +1,8 @@
+import { Capacitor } from '@capacitor/core';
 import { useViewer } from '@/store/viewerStore';
 import { buildModelFromCad, parseCadInWorker, type CadFormat } from '@/core/loaders/occtLoader';
 import { loadGlbModel, loadObjModel, loadStlModel } from '@/core/loaders/meshLoaders';
+import { resolveModelExtension } from '@/core/loaders/modelFileType';
 import { tr } from '@/i18n';
 import type { LoadedModel } from '@/core/types';
 
@@ -14,24 +16,40 @@ const CAD_FORMATS: Record<string, CadFormat> = {
 };
 
 /** Route a picked/dropped file to the right parser and publish the result. */
-export async function openModelFile(file: File): Promise<void> {
-  return openModelBuffer(await file.arrayBuffer(), file.name);
+export function openModelFile(file: Pick<File, 'name' | 'arrayBuffer'>): Promise<void> {
+  return loadModel(file.name, () => file.arrayBuffer());
 }
 
 /**
  * Same, from raw bytes — used by the desktop shell when a file arrives via
  * an OS file association (double-click in Explorer) instead of the picker.
  */
-export async function openModelBuffer(buffer: ArrayBuffer, fileName: string): Promise<void> {
-  const store = useViewer.getState();
-  const extension = fileName.split('.').pop()?.toLowerCase() ?? '';
-  store.beginLoad(fileName);
+export function openModelBuffer(buffer: ArrayBuffer, fileName: string): Promise<void> {
+  return loadModel(fileName, () => buffer);
+}
 
+let latestLoad = 0;
+
+async function loadModel(fileName: string, read: () => ArrayBuffer | Promise<ArrayBuffer>): Promise<void> {
+  const loadId = ++latestLoad;
+  useViewer.getState().beginLoad(fileName);
+
+  let buffer: ArrayBuffer;
+  try {
+    buffer = await read();
+  } catch {
+    if (loadId === latestLoad) useViewer.getState().failLoad(tr('err.read', { name: fileName }));
+    return;
+  }
+  if (loadId !== latestLoad) return;
+
+  const extension = resolveModelExtension(fileName, buffer);
   try {
     let model: LoadedModel;
-    if (extension in CAD_FORMATS) {
+    if (Object.hasOwn(CAD_FORMATS, extension)) {
       // B-rep formats: tessellated by OpenCASCADE (WASM) in a Web Worker.
       const result = await parseCadInWorker(buffer, CAD_FORMATS[extension]);
+      if (loadId !== latestLoad) return;
       model = buildModelFromCad(fileName, result);
     } else if (extension === 'stl') {
       model = loadStlModel(buffer, fileName);
@@ -42,9 +60,9 @@ export async function openModelBuffer(buffer: ArrayBuffer, fileName: string): Pr
     } else {
       throw new Error(tr('err.unsupported', { ext: extension, list: ACCEPTED_EXTENSIONS.join(', ') }));
     }
-    useViewer.getState().setModel(model);
+    if (loadId === latestLoad) useViewer.getState().setModel(model);
   } catch (error) {
-    useViewer.getState().failLoad(localizeError(error));
+    if (loadId === latestLoad) useViewer.getState().failLoad(localizeError(error));
   }
 }
 
@@ -52,7 +70,7 @@ export async function openModelBuffer(buffer: ArrayBuffer, fileName: string): Pr
 function localizeError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   if (message.startsWith('OpenCASCADE could not parse')) return tr('err.occt');
-  if (message === 'The CAD file contains no triangle geometry.') return tr('err.cadEmpty');
+  if (message === 'OpenCASCADE returned no displayable triangle geometry.') return tr('err.cadEmpty');
   if (message.includes('worker crashed')) return tr('err.worker');
   return message;
 }
@@ -61,7 +79,9 @@ function localizeError(error: unknown): string {
 export function pickModelFile(): void {
   const input = document.createElement('input');
   input.type = 'file';
-  input.accept = FILE_ACCEPT;
+  // Android's picker may report CAD documents as application/octet-stream.
+  // Let users select those documents and validate the format when opening.
+  if (Capacitor.getPlatform() !== 'android') input.accept = FILE_ACCEPT;
   input.onchange = () => {
     const file = input.files?.[0];
     if (file) void openModelFile(file);

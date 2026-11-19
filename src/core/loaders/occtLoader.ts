@@ -4,7 +4,7 @@ import { finalizeModel } from '@/core/loaders/finalizeModel';
 
 export type CadFormat = 'step' | 'iges' | 'brep';
 
-interface WorkerMesh {
+export interface WorkerMesh {
   name: string;
   color: [number, number, number] | null;
   positions: Float32Array;
@@ -12,13 +12,13 @@ interface WorkerMesh {
   indices: Uint32Array | null;
 }
 
-interface WorkerNode {
+export interface WorkerNode {
   name?: string;
   meshes?: number[];
   children?: WorkerNode[];
 }
 
-interface WorkerResult {
+export interface WorkerResult {
   meshes: WorkerMesh[];
   root: WorkerNode;
 }
@@ -31,12 +31,22 @@ function ensureWorker(): Worker {
   if (worker) return worker;
   worker = new Worker(`${import.meta.env.BASE_URL}occt-worker.js`);
   worker.onmessage = (event: MessageEvent) => {
-    const { id, ok, error, meshes, root } = event.data;
+    const { id, ok, error, meshes, root, retryStep } = event.data;
     const request = pending.get(id);
     if (!request) return;
     pending.delete(id);
-    if (ok) request.resolve({ meshes, root });
-    else request.reject(new Error(error));
+    if (ok) {
+      request.resolve({ meshes, root });
+    } else if (retryStep instanceof ArrayBuffer) {
+      // Release the original WASM heap before attempting another large import.
+      if (pending.size === 0) {
+        worker?.terminate();
+        worker = null;
+      }
+      recoverStep(retryStep).then(request.resolve, () => request.reject(new Error(error)));
+    } else {
+      request.reject(new Error(error));
+    }
   };
   worker.onerror = (event) => {
     const err = new Error(event.message || 'The CAD parsing worker crashed.');
@@ -46,6 +56,28 @@ function ensureWorker(): Worker {
     worker = null;
   };
   return worker;
+}
+
+function recoverStep(buffer: ArrayBuffer): Promise<WorkerResult> {
+  return new Promise((resolve, reject) => {
+    const recovery = new Worker(new URL('./stepRecovery.worker.ts', import.meta.url), { type: 'module' });
+    const fail = (error: string) => {
+      recovery.terminate();
+      reject(new Error(error));
+    };
+    recovery.onmessage = ({ data }) => {
+      recovery.terminate();
+      if (data.ok) resolve(data.result);
+      else reject(new Error(data.error));
+    };
+    recovery.onerror = (event) => fail(event.message);
+    recovery.onmessageerror = () => fail('Could not receive STEP recovery result.');
+    try {
+      recovery.postMessage(buffer, [buffer]);
+    } catch (error) {
+      fail(String(error));
+    }
+  });
 }
 
 /**

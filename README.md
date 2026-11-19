@@ -4,6 +4,8 @@ A multiplatform CAD viewer — one React codebase targeting **Web**, **Windows d
 
 Opens **STEP / IGES / BREP** (via OpenCASCADE compiled to WebAssembly), plus **STL / OBJ / GLB**, and provides an assembly tree, an interactive View Cube, material presets and measurement tools in a minimalist, model-first UI.
 
+See [CHANGELOG.md](CHANGELOG.md) for recent changes.
+
 ![Layout: assembly tree · 3D viewport · toolbar](docs/screenshot.png)
 
 ## Features
@@ -21,7 +23,7 @@ Opens **STEP / IGES / BREP** (via OpenCASCADE compiled to WebAssembly), plus **S
 |---|---|
 | UI | React 19 + TypeScript + Vite + Tailwind CSS 4 |
 | 3D | three.js via `@react-three/fiber` + `@react-three/drei` |
-| CAD parsing | `occt-import-js` (OpenCASCADE → WASM) in a Web Worker |
+| CAD parsing | OpenCASCADE via `occt-import-js` and `occt-wasm` in Web Workers |
 | Picking perf | `three-mesh-bvh` |
 | State | `zustand` |
 | Desktop | Tauri 2 (WebView2 on Windows — ~10 MB installer, no bundled Chromium) |
@@ -34,7 +36,7 @@ STEP and IGES usually describe exact **B-rep** surfaces rather than GPU-ready tr
 The pipeline is designed around three constraints — parse times of seconds-to-minutes, a 7.6 MB WASM binary, and identical behavior across web/desktop/mobile shells:
 
 1. **CAD import runs in a Web Worker** (`public/occt-worker.js`). The file bytes are `postMessage`-**transferred** (zero-copy) into the worker, and the resulting positions/normals/indices are **transferred** back. Standalone, unstyled, millimeter `FACETED_BREP` models made entirely of triangles are read directly by `public/step-faceted.js`, without rebuilding their already-tessellated faces in a CAD kernel. Unsupported geometry, units, styles and assembly placements fall back to OpenCASCADE; an empty engine result is reported as an error instead of publishing a blank model.
-2. **The WASM runtime stays out of the bundler.** The worker is a *classic* worker that `importScripts()`s the Emscripten UMD build verbatim; `scripts/copy-occt.mjs` copies `occt-import-js.{js,wasm}` into `public/vendor/occt/` on `npm install`. Vite never sees the Emscripten bundle, so dev, production, Tauri and Capacitor builds all load it the same way — and the 7.6 MB WASM is fetched **lazily**, only when an import needs the general CAD kernel. App startup and directly imported faceted models pay nothing.
+2. **The CAD engines load on demand.** The classic worker loads the OpenCASCADE runtime from `public/vendor/occt/`, copied there by the npm postinstall hook. If the engine returns an empty mesh for a STEP file, a separate module worker loads a newer OpenCASCADE build and triangulates each part individually, preserving assembly placements. Both builds stay off the app startup path.
 3. **Meshes arrive render-ready.** On the main thread the typed arrays are wrapped directly into `THREE.BufferGeometry` (no copying), a BVH is built once per geometry for fast raycasting, and the worker-reported node tree becomes the assembly tree. Mesh-native formats bypass the worker entirely: STL/OBJ/GLB go through the standard three.js loaders.
 
 STL/STEP/IGES geometry is treated as **Z-up** (CAD convention) and displayed under a rigid −90° X rotation to three.js Y-up — rigid, so world-space measurements (distances/angles/diameters, in mm) are unaffected.
@@ -54,6 +56,7 @@ MB-Viewer/
 │  ├─ copy-occt.mjs               # node_modules → public/vendor/occt
 │  ├─ icon-lib.mjs                # dependency-free icon rasterizer (shared)
 │  ├─ gen-icons.mjs               # desktop icon set (PNGs + multi-size ICO)
+│  ├─ android-file-open.mjs       # Android file associations and plugin registration
 │  └─ android-icons.mjs           # Android launcher mipmaps + adaptive icon
 ├─ src/
 │  ├─ main.tsx                    # entry: BVH install + React root
@@ -67,6 +70,7 @@ MB-Viewer/
 │  │  ├─ loaders/
 │  │  │  ├─ openModelFile.ts      # extension routing, file picker
 │  │  │  ├─ occtLoader.ts         # worker RPC + occt result → LoadedModel
+│  │  │  ├─ stepRecovery.worker.ts # per-part STEP tessellation fallback
 │  │  │  ├─ meshLoaders.ts        # STL / OBJ / GLB
 │  │  │  └─ finalizeModel.ts      # indexing, bounds, stats, BVH build
 │  │  ├─ materials/presets.ts     # presets + memoized material resolution
@@ -86,11 +90,13 @@ MB-Viewer/
 
 ## Getting started
 
+Use Node.js 22.12 or later.
+
 ```bash
-npm install        # also copies the occt WASM runtime into public/
+npm ci             # install locked dependencies and copy the OCCT WASM runtime
 npm run dev        # web app on http://localhost:5173
 npm run build      # typecheck + production bundle in dist/
-npm test           # generated faceted STEP fixtures + worker regressions
+npm test           # STEP import, assembly placement, and worker regressions
 ```
 
 No model at hand? Click **Sample** in the toolbar.
@@ -111,10 +117,13 @@ App icons are committed and reproducible via `npm run icons` (`scripts/gen-icons
 Requires Android Studio + SDK.
 
 ```bash
+npm run build           # create dist/ before adding the Android platform
 npx cap add android      # once — generates the android/ project (gitignored)
 npm run android:sync     # build web assets + sync into the native project
 npm run android:open     # open in Android Studio, run on device/emulator
 ```
+
+Capacitor sync registers MB Viewer for **Open with** in Android file managers. Select **Always** if Android offers it. File managers may report STEP documents as generic binary files. MB Viewer checks the STEP header when the provider supplies a `.bin` name or omits the extension.
 
 ## CI installer builds
 
