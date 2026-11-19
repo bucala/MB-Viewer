@@ -4,6 +4,10 @@
 
 ### Added
 
+- Added an import cancellation control, tessellation quality settings, and background mesh parsing and picking setup.
+- Improved CAD face measurements and preserved STEP face colors in the primary import path.
+- Batched compatible parts in large assemblies to reduce draw calls.
+
 - Android file managers can open supported CAD documents with MB Viewer through **Open with**. Android manages the default app selection.
 - STEP import retries tessellation one part at a time with a newer OpenCASCADE build when the primary engine returns no displayable triangles. The retry preserves the assembly hierarchy and placements.
 

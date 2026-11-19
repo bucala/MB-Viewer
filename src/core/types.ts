@@ -51,6 +51,8 @@ export interface ModelMesh {
 }
 
 export interface LoadedModel {
+  /** Unique per load — distinguishes two files that share a name. */
+  uid: number;
   name: string;
   root: ModelNode;
   meshes: ModelMesh[];
@@ -79,7 +81,8 @@ export interface Measurement {
   points: Vec3[];
   /** mm for distance/radius(Ø), degrees for angle. */
   value: number;
-  label: string;
+  /** Estimated from a partial local fit (shown with ≈). */
+  approx?: boolean;
   /** Fitted circle, for diameter measurements. */
   circle?: Circle3;
 }

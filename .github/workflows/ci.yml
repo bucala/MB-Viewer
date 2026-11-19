@@ -1,0 +1,55 @@
+# ---------------------------------------------------------------------------
+# MB Viewer — checks for every pull request and every push to main:
+# typecheck, unit/regression tests (incl. measuring accuracy on real STEP
+# tessellations) and a production build; on Windows, the thumbnail
+# provider's parser tests and a compile check of the Tauri shell.
+# Installers are built separately (build.yml, manual).
+# ---------------------------------------------------------------------------
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: Typecheck, tests, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      # Node 22 runs the TypeScript measuring core directly (type stripping).
+      - run: npm test
+      - run: npm run build
+
+  windows:
+    name: Windows shell + thumbnailer
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            src-tauri
+            thumbnailer
+      - name: Thumbnail provider tests
+        run: cargo test --manifest-path thumbnailer/Cargo.toml
+      # tauri.conf.json bundles the DLL; a placeholder satisfies the check.
+      - name: Tauri shell compile check
+        shell: bash
+        run: |
+          mkdir -p dist && touch src-tauri/mb_viewer_thumbs.dll
+          cargo check --manifest-path src-tauri/Cargo.toml

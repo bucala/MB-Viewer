@@ -1,8 +1,19 @@
 import { BufferAttribute, Color, Matrix3, Matrix4, SRGBColorSpace } from 'three';
 import type { LabelTag, Mesh, OcctKernel } from 'occt-wasm';
 import type { WorkerMesh, WorkerNode, WorkerResult } from './occtLoader';
+import type { TessellationQuality } from '@/store/settingsStore';
 
-export function recoverStepByPart(kernel: OcctKernel, bytes: Uint8Array): WorkerResult {
+const recoveryTolerances = {
+  coarse: { linearDeflection: 0.3, angularDeflection: 0.8 },
+  standard: undefined,
+  fine: { linearDeflection: 0.04, angularDeflection: 0.2 },
+};
+
+export function recoverStepByPart(
+  kernel: OcctKernel,
+  bytes: Uint8Array,
+  quality: TessellationQuality = 'standard',
+): WorkerResult {
   // Embind accepts the STEP bytes for its std::string parameter. Passing
   // them directly avoids decoding a potentially large file into another copy.
   const doc = kernel.importXCAFFromSTEP(bytes as unknown as string);
@@ -27,7 +38,7 @@ export function recoverStepByPart(kernel: OcctKernel, bytes: Uint8Array): Worker
       } else if (info.shapeHandle !== null) {
         let mesh = prototypes.get(prototype);
         if (!mesh) {
-          mesh = kernel.tessellate(info.shapeHandle);
+          mesh = kernel.tessellate(info.shapeHandle, recoveryTolerances[quality]);
           prototypes.set(prototype, mesh);
         }
         if (mesh.indices.length >= 3 && mesh.positions.length >= 9) {

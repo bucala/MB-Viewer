@@ -1,6 +1,9 @@
 import * as THREE from 'three';
 import type { LoadedModel, ModelMesh, ModelNode } from '@/core/types';
 import { finalizeModel } from '@/core/loaders/finalizeModel';
+import { buildBvhsInWorker, geometryFromWorker } from '@/core/loaders/geometryWorker';
+
+import type { TessellationQuality } from '@/store/settingsStore';
 
 export type CadFormat = 'step' | 'iges' | 'brep';
 
@@ -10,6 +13,8 @@ export interface WorkerMesh {
   positions: Float32Array;
   normals: Float32Array | null;
   indices: Uint32Array | null;
+  /** first/last triangle index per B-rep face (absent for faceted STEP). */
+  faceRanges?: Uint32Array;
 }
 
 export interface WorkerNode {
@@ -23,11 +28,34 @@ export interface WorkerResult {
   root: WorkerNode;
 }
 
+/** The WASM heap only grows; an idle worker is dropped to give it back. */
+const IDLE_TERMINATE_MS = 30_000;
+
 let worker: Worker | null = null;
+let idleTimer: ReturnType<typeof setTimeout> | undefined;
 let seq = 0;
-const pending = new Map<number, { resolve: (r: WorkerResult) => void; reject: (e: Error) => void }>();
+const pending = new Map<number, {
+  resolve: (result: WorkerResult) => void;
+  reject: (reason: unknown) => void;
+  signal?: AbortSignal;
+  quality: TessellationQuality;
+}>();
+
+function terminateWorker(error?: Error): void {
+  clearTimeout(idleTimer);
+  if (error) pending.forEach((request) => request.reject(error));
+  pending.clear();
+  worker?.terminate();
+  worker = null;
+}
+
+function scheduleIdleTermination(): void {
+  clearTimeout(idleTimer);
+  if (pending.size === 0) idleTimer = setTimeout(() => terminateWorker(), IDLE_TERMINATE_MS);
+}
 
 function ensureWorker(): Worker {
+  clearTimeout(idleTimer);
   if (worker) return worker;
   worker = new Worker(`${import.meta.env.BASE_URL}occt-worker.js`);
   worker.onmessage = (event: MessageEvent) => {
@@ -38,44 +66,49 @@ function ensureWorker(): Worker {
     if (ok) {
       request.resolve({ meshes, root });
     } else if (retryStep instanceof ArrayBuffer) {
-      // Release the original WASM heap before attempting another large import.
-      if (pending.size === 0) {
-        worker?.terminate();
-        worker = null;
-      }
-      recoverStep(retryStep).then(request.resolve, () => request.reject(new Error(error)));
+      // Drop the original WASM heap before starting the fallback if idle.
+      if (pending.size === 0) terminateWorker();
+      recoverStep(retryStep, request.quality, request.signal).then(request.resolve, () =>
+        request.reject(request.signal?.aborted ? request.signal.reason : new Error(error)),
+      );
     } else {
       request.reject(new Error(error));
     }
+    if (worker) scheduleIdleTermination();
   };
   worker.onerror = (event) => {
-    const err = new Error(event.message || 'The CAD parsing worker crashed.');
-    pending.forEach((request) => request.reject(err));
-    pending.clear();
-    worker?.terminate();
-    worker = null;
+    terminateWorker(new Error(event.message || 'The CAD parsing worker crashed.'));
   };
   return worker;
 }
 
-function recoverStep(buffer: ArrayBuffer): Promise<WorkerResult> {
+function recoverStep(
+  buffer: ArrayBuffer, quality: TessellationQuality, signal?: AbortSignal,
+): Promise<WorkerResult> {
   return new Promise((resolve, reject) => {
+    signal?.throwIfAborted();
     const recovery = new Worker(new URL('./stepRecovery.worker.ts', import.meta.url), { type: 'module' });
-    const fail = (error: string) => {
+    const cleanup = () => {
       recovery.terminate();
-      reject(new Error(error));
+      signal?.removeEventListener('abort', abort);
     };
+    const fail = (reason: unknown) => {
+      cleanup();
+      reject(reason);
+    };
+    const abort = () => fail(signal?.reason);
+    signal?.addEventListener('abort', abort, { once: true });
     recovery.onmessage = ({ data }) => {
-      recovery.terminate();
+      cleanup();
       if (data.ok) resolve(data.result);
       else reject(new Error(data.error));
     };
-    recovery.onerror = (event) => fail(event.message);
-    recovery.onmessageerror = () => fail('Could not receive STEP recovery result.');
+    recovery.onerror = (event) => fail(new Error(event.message));
+    recovery.onmessageerror = () => fail(new Error('Could not receive STEP recovery result.'));
     try {
-      recovery.postMessage(buffer, [buffer]);
+      recovery.postMessage({ buffer, quality }, [buffer]);
     } catch (error) {
-      fail(String(error));
+      fail(error);
     }
   });
 }
@@ -83,12 +116,39 @@ function recoverStep(buffer: ArrayBuffer): Promise<WorkerResult> {
 /**
  * Parse STEP/IGES/BREP in the occt (OpenCASCADE WASM) worker.
  * The buffer is transferred, not copied — do not reuse it afterwards.
+ * Aborting terminates the worker: OpenCASCADE cannot be interrupted.
  */
-export function parseCadInWorker(buffer: ArrayBuffer, format: CadFormat): Promise<WorkerResult> {
+export function parseCadInWorker(
+  buffer: ArrayBuffer,
+  format: CadFormat,
+  options: { quality?: TessellationQuality; signal?: AbortSignal } = {},
+): Promise<WorkerResult> {
+  const { quality = 'standard', signal } = options;
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason);
+      return;
+    }
     const id = ++seq;
-    pending.set(id, { resolve, reject });
-    ensureWorker().postMessage({ id, format, buffer }, [buffer]);
+    const abort = () => {
+      if (pending.has(id)) terminateWorker(signal?.reason ?? new Error('CAD loading aborted.'));
+    };
+    const cleanup = () => signal?.removeEventListener('abort', abort);
+    pending.set(id, {
+      signal,
+      quality,
+      resolve: (result) => { cleanup(); resolve(result); },
+      reject: (error) => { cleanup(); reject(error); },
+    });
+    signal?.addEventListener('abort', abort, { once: true });
+    try {
+      ensureWorker().postMessage({ id, format, buffer, quality }, [buffer]);
+    } catch (error) {
+      pending.delete(id);
+      cleanup();
+      if (worker) scheduleIdleTermination();
+      reject(error);
+    }
   });
 }
 
@@ -96,17 +156,19 @@ function rgbToHex([r, g, b]: [number, number, number]): string {
   return `#${new THREE.Color(r, g, b).getHexString()}`;
 }
 
-/** Turn the worker's transferable payload into geometries + assembly tree. */
-export function buildModelFromCad(fileName: string, data: WorkerResult): LoadedModel {
+/** Turn the worker's payload into geometries (BVHs built off-thread) + assembly tree. */
+export async function buildModelFromCad(
+  fileName: string,
+  data: WorkerResult,
+  signal?: AbortSignal,
+): Promise<LoadedModel> {
+  const built = await buildBvhsInWorker(
+    data.meshes.map((wm) => ({ positions: wm.positions, normals: wm.normals, indices: wm.indices })),
+    signal,
+  );
   const meshes: ModelMesh[] = data.meshes.map((wm, i) => {
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.BufferAttribute(wm.positions, 3));
-    if (wm.normals && wm.normals.length === wm.positions.length) {
-      geometry.setAttribute('normal', new THREE.BufferAttribute(wm.normals, 3));
-    }
-    if (wm.indices) {
-      geometry.setIndex(new THREE.BufferAttribute(wm.indices, 1));
-    }
+    const geometry = geometryFromWorker(built[i]);
+    if (wm.faceRanges && wm.faceRanges.length > 0) geometry.userData.faceRanges = wm.faceRanges;
     return {
       id: i,
       name: wm.name.trim() || `Body ${i + 1}`,

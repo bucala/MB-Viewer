@@ -1,4 +1,3 @@
-import { useEffect, useRef, useState } from 'react';
 import { useViewer } from '@/store/viewerStore';
 import { pickModelFile } from '@/core/loaders/openModelFile';
 import { PRESET_ORDER, SWATCH_COLORS } from '@/core/materials/presets';
@@ -6,6 +5,7 @@ import type { MaterialPresetId, ToolId } from '@/core/types';
 import { useT, type TranslationKey } from '@/i18n';
 import { ToolButton, ToolbarDivider, type IconType } from '@/components/ui/ToolButton';
 import { SettingsMenu } from '@/components/layout/SettingsMenu';
+import { usePopover } from '@/components/ui/usePopover';
 import {
   AngleIcon, CursorIcon, DiameterIcon, FitIcon, FolderOpenIcon, PaletteIcon,
   PanelLeftIcon, PointToPointIcon, RulerIcon, SectionIcon, TrashIcon, WandIcon,
@@ -33,8 +33,7 @@ function PresetPreview({ preset }: { preset: MaterialPresetId }) {
 }
 
 function MaterialMenu() {
-  const [open, setOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const { open, setOpen, containerRef } = usePopover();
   const t = useT();
   const model = useViewer((s) => s.model);
   const selectedId = useViewer((s) => s.selectedId);
@@ -42,15 +41,6 @@ function MaterialMenu() {
   const globalMaterial = useViewer((s) => s.globalMaterial);
   const applyMaterial = useViewer((s) => s.applyMaterial);
   const resetMaterials = useViewer((s) => s.resetMaterials);
-
-  useEffect(() => {
-    if (!open) return;
-    const onPointerDown = (event: PointerEvent) => {
-      if (!containerRef.current?.contains(event.target as Node)) setOpen(false);
-    };
-    document.addEventListener('pointerdown', onPointerDown);
-    return () => document.removeEventListener('pointerdown', onPointerDown);
-  }, [open]);
 
   const selectedNode = selectedId && model ? model.nodeIndex[selectedId] : null;
   const current = (selectedId && overrides[selectedId]) || (selectedNode ? null : globalMaterial);
@@ -62,11 +52,12 @@ function MaterialMenu() {
         label={t('toolbar.material')}
         title={t('tip.material')}
         active={open}
+        expanded={open}
         disabled={!model}
         onClick={() => setOpen((value) => !value)}
       />
       {open && (
-        <div className="absolute left-1/2 top-full z-50 mt-2 w-[19rem] -translate-x-1/2 rounded-2xl border border-line bg-panel p-3 shadow-xl">
+        <div role="dialog" aria-label={t('tip.material')} className="absolute left-1/2 top-full z-50 mt-2 w-[19rem] -translate-x-1/2 rounded-2xl border border-line bg-panel p-3 shadow-xl">
           <p className="mb-2 text-[11px] text-ink-faint">
             {t('mat.appliesTo')}{' '}
             <span className="font-medium text-ink-soft">
@@ -128,21 +119,11 @@ function MaterialMenu() {
 }
 
 function SectionMenu() {
-  const [open, setOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const { open, setOpen, containerRef } = usePopover();
   const t = useT();
   const model = useViewer((s) => s.model);
   const section = useViewer((s) => s.section);
   const setSection = useViewer((s) => s.setSection);
-
-  useEffect(() => {
-    if (!open) return;
-    const onPointerDown = (event: PointerEvent) => {
-      if (!containerRef.current?.contains(event.target as Node)) setOpen(false);
-    };
-    document.addEventListener('pointerdown', onPointerDown);
-    return () => document.removeEventListener('pointerdown', onPointerDown);
-  }, [open]);
 
   const axes: { id: SectionAxis; labelKey: TranslationKey }[] = [
     { id: 'none', labelKey: 'section.none' },
@@ -158,11 +139,12 @@ function SectionMenu() {
         label={t('toolbar.section')}
         title={t('tip.section')}
         active={open || section.axis !== 'none'}
+        expanded={open}
         disabled={!model}
         onClick={() => setOpen((value) => !value)}
       />
       {open && (
-        <div className="absolute left-1/2 top-full z-50 mt-2 w-[17rem] -translate-x-1/2 rounded-2xl border border-line bg-panel p-3 shadow-xl">
+        <div role="dialog" aria-label={t('tip.section')} className="absolute left-1/2 top-full z-50 mt-2 w-[17rem] -translate-x-1/2 rounded-2xl border border-line bg-panel p-3 shadow-xl">
           <div className="grid grid-cols-4 gap-1">
             {axes.map((axis) => (
               <button
@@ -228,7 +210,7 @@ export function Toolbar() {
     // into a second row under the left-side icons instead of overflowing.
     <header className="z-40 flex min-h-[60px] shrink-0 flex-wrap items-center gap-0.5 border-b border-line bg-panel/90 px-2 py-1 backdrop-blur">
       <div className="mr-1 flex items-center gap-2 pl-1">
-        <img src="/favicon.svg" alt="MB Viewer" className="size-8 shrink-0 rounded-lg" />
+        <img src={`${import.meta.env.BASE_URL}favicon.svg`} alt="MB Viewer" className="size-8 shrink-0 rounded-lg" />
         <span className="hidden text-[13px] font-medium text-ink md:block">MB Viewer</span>
       </div>
 

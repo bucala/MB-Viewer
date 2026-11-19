@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { useThree } from '@react-three/fiber';
-import { getWorldBox } from '@/core/scene';
 import { PRESET_SURFACE, darkenHex, resolveAppearance } from '@/core/materials/presets';
 import type { LoadedModel, MaterialPresetId, RenderEntry, SectionState } from '@/core/types';
 
@@ -146,6 +145,8 @@ function PartCap({
   );
 }
 
+const Z_UP_TO_Y_UP = new THREE.Matrix4().makeRotationX(-Math.PI / 2);
+
 export function SectionCaps({
   model, entries, plane, section,
 }: {
@@ -154,17 +155,31 @@ export function SectionCaps({
   plane: THREE.Plane;
   section: SectionState;
 }) {
-  const { capSize, center } = useMemo(() => {
-    const box = getWorldBox(model);
-    return {
-      capSize: box.getSize(new THREE.Vector3()).length() * 1.25 || 1,
-      center: box.getCenter(new THREE.Vector3()),
-    };
-  }, [model]);
+  // Only parts the plane actually cuts get a stencil pass and a cap, sized to
+  // the part: every cap is a full stencil fill plus clear, so drawing one per
+  // part at model size made the cost grow with parts × screen area.
+  const cut = useMemo(() => {
+    const result: { entry: RenderEntry; capSize: number; center: THREE.Vector3 }[] = [];
+    for (const entry of entries) {
+      const geometry = entry.mesh.geometry;
+      if (!geometry.boundingBox) geometry.computeBoundingBox();
+      const box = geometry.boundingBox!.clone();
+      if (model.upAxis === 'z') box.applyMatrix4(Z_UP_TO_Y_UP);
+      if (!box.intersectsPlane(plane)) continue;
+      result.push({
+        entry,
+        capSize: box.getSize(new THREE.Vector3()).length() * 1.05 || 1,
+        center: box.getCenter(new THREE.Vector3()),
+      });
+    }
+    return result;
+    // `plane` is mutated in place; `section` changes with every move, so it
+    // stands in for the plane as a dependency.
+  }, [entries, model, plane, section]);
 
   return (
     <>
-      {entries.map((entry, index) => (
+      {cut.map(({ entry, capSize, center }, index) => (
         <PartCap
           key={`${entry.mesh.id}:${section.axis}`}
           entry={entry}

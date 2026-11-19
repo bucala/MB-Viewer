@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type DragEvent } from 'react';
 import { useViewer } from '@/store/viewerStore';
 import { useSettings } from '@/store/settingsStore';
 import { useT } from '@/i18n';
-import { openModelFile, pickModelFile } from '@/core/loaders/openModelFile';
+import { cancelModelLoad, openModelFile, pickModelFile } from '@/core/loaders/openModelFile';
 import { createSampleModel } from '@/core/sample';
 import { Toolbar } from '@/components/layout/Toolbar';
 import { Sidebar } from '@/components/layout/Sidebar';
@@ -56,6 +56,13 @@ function LoadingOverlay({ fileName }: { fileName?: string }) {
           {t('load.parsing', { name: fileName ?? '…' })}
         </p>
         <p className="mt-0.5 text-[11px] text-ink-faint">{t('load.engine')}</p>
+        <button
+          type="button"
+          onClick={cancelModelLoad}
+          className="mt-4 rounded-full border border-line px-4 py-1.5 text-[12px] text-ink-soft transition-colors hover:bg-hover"
+        >
+          {t('load.cancel')}
+        </button>
       </div>
     </div>
   );
@@ -140,7 +147,18 @@ export default function App() {
       <Toolbar />
 
       <div className="relative flex min-h-0 flex-1">
-        {sidebarOpen && <Sidebar />}
+        {sidebarOpen && (
+          <>
+            {/* Phones: the tree overlays the viewport; tapping beside it closes it. */}
+            <button
+              type="button"
+              aria-label={t('tree.close')}
+              onClick={() => useViewer.getState().toggleSidebar()}
+              className="absolute inset-0 z-20 bg-black/20 md:hidden"
+            />
+            <Sidebar />
+          </>
+        )}
 
         <main
           className="relative min-w-0 flex-1"

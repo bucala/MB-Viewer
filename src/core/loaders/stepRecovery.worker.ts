@@ -2,12 +2,13 @@ import { OcctKernel } from 'occt-wasm';
 import glueUrl from 'occt-wasm/dist/occt-wasm.js?url';
 import wasmUrl from 'occt-wasm/dist/occt-wasm.wasm?url';
 import { recoverStepByPart } from './stepRecovery';
+import type { TessellationQuality } from '@/store/settingsStore';
 
-self.onmessage = async ({ data }: MessageEvent<ArrayBuffer>) => {
+self.onmessage = async ({ data }: MessageEvent<{ buffer: ArrayBuffer; quality: TessellationQuality }>) => {
   try {
     const { default: createModule } = await import(/* @vite-ignore */ glueUrl);
     const kernel = await OcctKernel.init({ createModule, wasm: new URL(wasmUrl, self.location.href) });
-    const result = recoverStepByPart(kernel, new Uint8Array(data));
+    const result = recoverStepByPart(kernel, new Uint8Array(data.buffer), data.quality);
     const transfer: Transferable[] = [];
     for (const { positions, normals, indices } of result.meshes) {
       transfer.push(positions.buffer);
