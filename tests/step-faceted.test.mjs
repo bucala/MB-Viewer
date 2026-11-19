@@ -225,9 +225,16 @@ test('worker reports an error instead of accepting successful but empty CAD outp
     root: { meshes: [0], children: [] },
     meshes: [{ attributes: { position: { array: [] } }, index: { array: [] } }],
   });
-  await worker.scope.self.onmessage({ data: { id: 10, format: 'step', buffer: new ArrayBuffer(0) } });
+  const buffer = encode('valid STEP input with no triangles from the first engine').buffer;
+  await worker.scope.self.onmessage({ data: { id: 10, format: 'step', buffer } });
   assert.equal(worker.messages[0].message.ok, false);
-  assert.equal(worker.messages[0].message.error, 'The CAD file contains no triangle geometry.');
+  assert.equal(worker.messages[0].message.error, 'OpenCASCADE returned no displayable triangle geometry.');
+  assert.equal(worker.messages[0].message.retryStep, buffer);
+  assert.equal(worker.messages[0].transfer[0], buffer);
+
+  await worker.scope.self.onmessage({ data: { id: 12, format: 'iges', buffer } });
+  assert.equal(worker.messages[1].message.ok, false);
+  assert.equal(worker.messages[1].message.retryStep, undefined);
 });
 
 test('worker reports an engine parse failure', async () => {

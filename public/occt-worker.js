@@ -15,6 +15,7 @@
  *          quality?: 'coarse'|'standard'|'fine' }
  *   out: { id, ok: true, meshes: [...], root: {...} }   (typed arrays transferred)
  *        { id, ok: false, error: string }
+ *        { id, ok: false, error: string, retryStep: ArrayBuffer } (empty STEP only)
  *
  * Each mesh carries `faceRanges` (pairs of first/last triangle index per
  * B-rep face) so measuring can fit the exact clicked face. A body whose
@@ -178,7 +179,13 @@ self.onmessage = async (event) => {
 
     if (!meshes.some((mesh) => mesh.positions.length >= 9 &&
         (!mesh.indices || mesh.indices.length >= 3))) {
-      throw new Error('The CAD file contains no triangle geometry.');
+      const failure = { id, ok: false, error: 'OpenCASCADE returned no displayable triangle geometry.' };
+      if (format === 'step') {
+        self.postMessage({ ...failure, retryStep: buffer }, [buffer]);
+      } else {
+        self.postMessage(failure);
+      }
+      return;
     }
     postResult(id, meshes, remapTree(result.root, meshMap));
   } catch (error) {

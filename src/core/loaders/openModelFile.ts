@@ -1,8 +1,10 @@
+import { Capacitor } from '@capacitor/core';
 import { useViewer } from '@/store/viewerStore';
 import { buildModelFromCad, parseCadInWorker, type CadFormat } from '@/core/loaders/occtLoader';
 import { loadGlbModel, loadObjModel, loadStlModel } from '@/core/loaders/meshLoaders';
 import { useSettings } from '@/store/settingsStore';
 import { disposeModel } from '@/core/loaders/finalizeModel';
+import { resolveModelExtension } from '@/core/loaders/modelFileType';
 import { tr } from '@/i18n';
 import type { LoadedModel } from '@/core/types';
 
@@ -18,7 +20,7 @@ const CAD_FORMATS: Record<string, CadFormat> = {
 };
 
 /** Route a picked/dropped file to the right parser and publish the result. */
-export async function openModelFile(file: File): Promise<void> {
+export async function openModelFile(file: Pick<File, 'name' | 'arrayBuffer'>): Promise<void> {
   // The load starts (and supersedes the previous one) when the user drops
   // the file, not when its bytes have been read — reading a big file can
   // take longer than reading a small one dropped right after it.
@@ -26,8 +28,9 @@ export async function openModelFile(file: File): Promise<void> {
   let buffer: ArrayBuffer;
   try {
     buffer = await file.arrayBuffer();
-  } catch (error) {
-    if (!controller.signal.aborted) useViewer.getState().failLoad(localizeError(error));
+  } catch {
+    if (!controller.signal.aborted) useViewer.getState().failLoad(tr('err.read', { name: file.name }));
+    if (currentLoad === controller) currentLoad = null;
     return;
   }
   if (!controller.signal.aborted) await loadBuffer(buffer, file.name, controller);
@@ -52,11 +55,11 @@ function startLoad(fileName: string): AbortController {
 
 async function loadBuffer(buffer: ArrayBuffer, fileName: string, controller: AbortController): Promise<void> {
   const { signal } = controller;
-  const extension = fileName.split('.').pop()?.toLowerCase() ?? '';
+  const extension = resolveModelExtension(fileName, buffer);
 
   try {
     let model: LoadedModel;
-    if (extension in CAD_FORMATS) {
+    if (Object.hasOwn(CAD_FORMATS, extension)) {
       // B-rep formats: tessellated by OpenCASCADE (WASM) in a Web Worker.
       const quality = useSettings.getState().tessellation;
       const result = await parseCadInWorker(buffer, CAD_FORMATS[extension], { quality, signal });
@@ -95,7 +98,7 @@ export function cancelModelLoad(): void {
 function localizeError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   if (message.startsWith('OpenCASCADE could not parse')) return tr('err.occt');
-  if (message === 'The CAD file contains no triangle geometry.') return tr('err.cadEmpty');
+  if (message === 'OpenCASCADE returned no displayable triangle geometry.') return tr('err.cadEmpty');
   if (message.includes('worker crashed')) return tr('err.worker');
   return message;
 }
@@ -104,7 +107,9 @@ function localizeError(error: unknown): string {
 export function pickModelFile(): void {
   const input = document.createElement('input');
   input.type = 'file';
-  input.accept = FILE_ACCEPT;
+  // Android's picker may report CAD documents as application/octet-stream.
+  // Let users select those documents and validate the format when opening.
+  if (Capacitor.getPlatform() !== 'android') input.accept = FILE_ACCEPT;
   input.onchange = () => {
     const file = input.files?.[0];
     if (file) void openModelFile(file);

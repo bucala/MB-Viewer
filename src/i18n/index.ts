@@ -74,10 +74,11 @@ const en = {
 
   'err.dismiss': 'Dismiss',
   'err.unsupported': 'Unsupported file type “.{ext}”. Supported: {list}.',
+  'err.read': 'Could not read “{name}”.',
   'err.objEmpty': 'The OBJ file contains no geometry.',
   'err.glbEmpty': 'The GLB file contains no mesh geometry.',
   'err.occt': 'OpenCASCADE could not parse this file. It may be corrupt or use an unsupported schema.',
-  'err.cadEmpty': 'The CAD file contains no displayable triangle geometry.',
+  'err.cadEmpty': 'MB Viewer could not extract displayable geometry from this CAD file.',
   'err.worker': 'The CAD parsing worker crashed.',
 
   'hint.auto.start': 'Smart measure — cylinder/circular edge → Ø, cone → angle; click a flat face or straight edge to start a pair',
@@ -127,6 +128,7 @@ const en = {
   'set.transparency': 'Part transparency',
   'set.assoc': 'File associations',
   'set.assocNote': 'Applied immediately on Windows (for the current user); the desktop installer registers them too.',
+  'set.assocAndroid': 'Use Open with in your file manager and select MB Viewer. Android offers Always when it can save a default.',
   'set.assocApplied': 'File associations updated.',
   'set.assocFailed': 'Could not update file associations: {error}',
   'set.apply': 'Apply',
@@ -213,10 +215,11 @@ const sk: Record<TranslationKey, string> = {
 
   'err.dismiss': 'Zavrieť',
   'err.unsupported': 'Nepodporovaný typ súboru „.{ext}“. Podporované: {list}.',
+  'err.read': 'Súbor „{name}“ sa nepodarilo prečítať.',
   'err.objEmpty': 'Súbor OBJ neobsahuje žiadnu geometriu.',
   'err.glbEmpty': 'Súbor GLB neobsahuje žiadnu geometriu.',
   'err.occt': 'OpenCASCADE nedokázal spracovať tento súbor. Môže byť poškodený alebo používa nepodporovanú schému.',
-  'err.cadEmpty': 'Súbor CAD neobsahuje zobraziteľnú trojuholníkovú geometriu.',
+  'err.cadEmpty': 'MB Viewer nedokázal z tohto CAD súboru načítať zobraziteľnú geometriu.',
   'err.worker': 'Proces spracovania CAD súboru zlyhal.',
 
   'hint.auto.start': 'Inteligentné meranie — valec/kruhová hrana → Ø, kužeľ → uhol; kliknite na rovinnú plochu alebo priamu hranu na začatie páru',
@@ -266,6 +269,7 @@ const sk: Record<TranslationKey, string> = {
   'set.transparency': 'Priehľadnosť dielov',
   'set.assoc': 'Asociácie súborov',
   'set.assocNote': 'Na Windows sa použijú okamžite (pre aktuálneho používateľa); registruje ich aj inštalátor.',
+  'set.assocAndroid': 'V správcovi súborov zvoľte Otvoriť pomocou a vyberte MB Viewer. Android ponúkne možnosť Vždy, ak môže uložiť predvolenú aplikáciu.',
   'set.assocApplied': 'Asociácie súborov boli aktualizované.',
   'set.assocFailed': 'Asociácie súborov sa nepodarilo aktualizovať: {error}',
   'set.apply': 'Použiť',

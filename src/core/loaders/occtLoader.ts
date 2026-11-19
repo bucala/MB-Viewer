@@ -7,7 +7,7 @@ import type { TessellationQuality } from '@/store/settingsStore';
 
 export type CadFormat = 'step' | 'iges' | 'brep';
 
-interface WorkerMesh {
+export interface WorkerMesh {
   name: string;
   color: [number, number, number] | null;
   positions: Float32Array;
@@ -17,13 +17,13 @@ interface WorkerMesh {
   faceRanges?: Uint32Array;
 }
 
-interface WorkerNode {
+export interface WorkerNode {
   name?: string;
   meshes?: number[];
   children?: WorkerNode[];
 }
 
-interface WorkerResult {
+export interface WorkerResult {
   meshes: WorkerMesh[];
   root: WorkerNode;
 }
@@ -34,7 +34,12 @@ const IDLE_TERMINATE_MS = 30_000;
 let worker: Worker | null = null;
 let idleTimer: ReturnType<typeof setTimeout> | undefined;
 let seq = 0;
-const pending = new Map<number, { resolve: (r: WorkerResult) => void; reject: (e: Error) => void }>();
+const pending = new Map<number, {
+  resolve: (result: WorkerResult) => void;
+  reject: (reason: unknown) => void;
+  signal?: AbortSignal;
+  quality: TessellationQuality;
+}>();
 
 function terminateWorker(error?: Error): void {
   clearTimeout(idleTimer);
@@ -54,18 +59,58 @@ function ensureWorker(): Worker {
   if (worker) return worker;
   worker = new Worker(`${import.meta.env.BASE_URL}occt-worker.js`);
   worker.onmessage = (event: MessageEvent) => {
-    const { id, ok, error, meshes, root } = event.data;
+    const { id, ok, error, meshes, root, retryStep } = event.data;
     const request = pending.get(id);
     if (!request) return;
     pending.delete(id);
-    if (ok) request.resolve({ meshes, root });
-    else request.reject(new Error(error));
-    scheduleIdleTermination();
+    if (ok) {
+      request.resolve({ meshes, root });
+    } else if (retryStep instanceof ArrayBuffer) {
+      // Drop the original WASM heap before starting the fallback if idle.
+      if (pending.size === 0) terminateWorker();
+      recoverStep(retryStep, request.quality, request.signal).then(request.resolve, () =>
+        request.reject(request.signal?.aborted ? request.signal.reason : new Error(error)),
+      );
+    } else {
+      request.reject(new Error(error));
+    }
+    if (worker) scheduleIdleTermination();
   };
   worker.onerror = (event) => {
     terminateWorker(new Error(event.message || 'The CAD parsing worker crashed.'));
   };
   return worker;
+}
+
+function recoverStep(
+  buffer: ArrayBuffer, quality: TessellationQuality, signal?: AbortSignal,
+): Promise<WorkerResult> {
+  return new Promise((resolve, reject) => {
+    signal?.throwIfAborted();
+    const recovery = new Worker(new URL('./stepRecovery.worker.ts', import.meta.url), { type: 'module' });
+    const cleanup = () => {
+      recovery.terminate();
+      signal?.removeEventListener('abort', abort);
+    };
+    const fail = (reason: unknown) => {
+      cleanup();
+      reject(reason);
+    };
+    const abort = () => fail(signal?.reason);
+    signal?.addEventListener('abort', abort, { once: true });
+    recovery.onmessage = ({ data }) => {
+      cleanup();
+      if (data.ok) resolve(data.result);
+      else reject(new Error(data.error));
+    };
+    recovery.onerror = (event) => fail(new Error(event.message));
+    recovery.onmessageerror = () => fail(new Error('Could not receive STEP recovery result.'));
+    try {
+      recovery.postMessage({ buffer, quality }, [buffer]);
+    } catch (error) {
+      fail(error);
+    }
+  });
 }
 
 /**
@@ -85,11 +130,25 @@ export function parseCadInWorker(
       return;
     }
     const id = ++seq;
-    pending.set(id, { resolve, reject });
-    signal?.addEventListener('abort', () => {
-      if (pending.has(id)) terminateWorker(signal.reason);
-    }, { once: true });
-    ensureWorker().postMessage({ id, format, buffer, quality }, [buffer]);
+    const abort = () => {
+      if (pending.has(id)) terminateWorker(signal?.reason ?? new Error('CAD loading aborted.'));
+    };
+    const cleanup = () => signal?.removeEventListener('abort', abort);
+    pending.set(id, {
+      signal,
+      quality,
+      resolve: (result) => { cleanup(); resolve(result); },
+      reject: (error) => { cleanup(); reject(error); },
+    });
+    signal?.addEventListener('abort', abort, { once: true });
+    try {
+      ensureWorker().postMessage({ id, format, buffer, quality }, [buffer]);
+    } catch (error) {
+      pending.delete(id);
+      cleanup();
+      if (worker) scheduleIdleTermination();
+      reject(error);
+    }
   });
 }
 

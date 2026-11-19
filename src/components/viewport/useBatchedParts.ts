@@ -42,7 +42,9 @@ export function useBatchedParts(
     for (const entry of base) {
       const material = resolveMaterial(entry);
       const geometry = entry.mesh.geometry;
-      const layout = Object.keys(geometry.attributes).sort().join(',');
+      const layout = Object.entries(geometry.attributes).map(([name, attr]) =>
+        `${name}:${attr.itemSize}:${attr.normalized}:${attr.array.constructor.name}`,
+      ).sort().join(',');
       const key = `${material.uuid}|${layout}|${geometry.index ? 'i' : 'n'}`;
       const group = groups.get(key);
       if (group) group.entries.push(entry);
